@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/registry"
-	"github.com/go-lynx/lynx/log"
 	"github.com/go-lynx/lynx-polaris/conf"
+	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
@@ -210,12 +210,12 @@ func (r *PolarisRegistrar) Watch(ctx context.Context, name string) (registry.Wat
 // PolarisDiscovery Polaris-based service discovery client
 // Implements Kratos registry.Discovery interface
 type PolarisDiscovery struct {
-	consumer       api.ConsumerAPI
-	namespace      string
-	watchInterval  time.Duration
-	enableRetry    bool
-	maxRetryTimes  int
-	baseRetry      time.Duration
+	consumer      api.ConsumerAPI
+	namespace     string
+	watchInterval time.Duration
+	enableRetry   bool
+	maxRetryTimes int
+	baseRetry     time.Duration
 }
 
 // NewPolarisDiscovery creates new Polaris discovery client

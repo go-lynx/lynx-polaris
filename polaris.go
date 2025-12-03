@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
 	"github.com/go-lynx/lynx"
+	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/go-lynx/lynx/log"
 	"github.com/go-lynx/lynx/plugins"
-	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
@@ -526,33 +526,33 @@ func (p *PlugPolaris) sendConfigWatchAlert(fileName, group string, err error) {
 
 // retryConfigWatch retries configuration watching
 func (p *PlugPolaris) retryConfigWatch(fileName, group string) {
-    // Implement retry logic
-    log.Infof("Retrying config watch for %s:%s", fileName, group)
+	// Implement retry logic
+	log.Infof("Retrying config watch for %s:%s", fileName, group)
 
-    // Wait for a period before retrying, but allow cancellation on plugin stop
-    if p.healthCheckCh != nil {
-        select {
-        case <-p.healthCheckCh:
-            log.Infof("Config watch retry canceled due to plugin shutdown: %s:%s", fileName, group)
-            return
-        case <-time.After(5 * time.Second):
-        }
-    } else {
-        // Fallback when channel is not available
-        if p.IsDestroyed() {
-            return
-        }
-        time.Sleep(5 * time.Second)
-    }
+	// Wait for a period before retrying, but allow cancellation on plugin stop
+	if p.healthCheckCh != nil {
+		select {
+		case <-p.healthCheckCh:
+			log.Infof("Config watch retry canceled due to plugin shutdown: %s:%s", fileName, group)
+			return
+		case <-time.After(5 * time.Second):
+		}
+	} else {
+		// Fallback when channel is not available
+		if p.IsDestroyed() {
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
 
-    if p.IsDestroyed() {
-        return
-    }
+	if p.IsDestroyed() {
+		return
+	}
 
-    // Recreate watcher
-    if _, err := p.WatchConfig(fileName, group); err == nil {
-        log.Infof("Successfully recreated config watcher for %s:%s", fileName, group)
-    } else {
-        log.Errorf("Failed to recreate config watcher for %s:%s: %v", fileName, group, err)
-    }
+	// Recreate watcher
+	if _, err := p.WatchConfig(fileName, group); err == nil {
+		log.Infof("Successfully recreated config watcher for %s:%s", fileName, group)
+	} else {
+		log.Errorf("Failed to recreate config watcher for %s:%s: %v", fileName, group, err)
+	}
 }
