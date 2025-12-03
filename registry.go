@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/registry"
-	"github.com/go-lynx/lynx/app/log"
-	"github.com/go-lynx/lynx/plugins/polaris/conf"
+	"github.com/go-lynx/lynx/log"
+	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-lynx/lynx/plugins/polaris/conf"
+	"github.com/go-lynx/lynx-polaris/conf"
 )
 
 // ValidationError configuration validation error

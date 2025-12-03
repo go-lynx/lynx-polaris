@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-lynx/lynx/app"
-	"github.com/go-lynx/lynx/app/log"
+	"github.com/go-lynx/lynx"
+	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/api"
 )
 
@@ -100,14 +100,14 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 
 		// Record instance information
 		instanceInfo := map[string]interface{}{
-			"service":       app.GetName(),
+			"service":       lynx.GetName(),
 			"namespace":     p.conf.Namespace,
 			"instance_type": fmt.Sprintf("%T", p.polaris),
 		}
 
 		// Implement specific Polaris instance destruction logic
 		// 1. Remove from Lynx application control plane
-		if app.Lynx() != nil {
+		if lynx.Lynx() != nil {
 			log.Infof("Removing from Lynx control plane")
 		}
 
@@ -119,7 +119,7 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 
 		// 4. Record destruction statistics
 		destroyStats := map[string]interface{}{
-			"service_name":  app.GetName(),
+			"service_name":  lynx.GetName(),
 			"namespace":     p.conf.Namespace,
 			"destroy_time":  time.Now().Unix(),
 			"instance_info": instanceInfo,

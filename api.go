@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
-	"github.com/go-lynx/lynx/app"
+	"github.com/go-lynx/lynx"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
 
@@ -86,7 +86,7 @@ func IsHealthy() error {
 func GetPolaris() *polaris.Polaris {
 	// Fetch the plugin by name from the application's plugin manager,
 	// cast it to *PlugPolaris and return its internal `polaris` field.
-	plugin := app.Lynx().GetPluginManager().GetPlugin(pluginName)
+	plugin := lynx.Lynx().GetPluginManager().GetPlugin(pluginName)
 	if plugin == nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func GetPolaris() *polaris.Polaris {
 func GetPlugin() *PlugPolaris {
 	// Fetch the plugin by name from the application's plugin manager,
 	// cast it to *PlugPolaris and return it.
-	plugin := app.Lynx().GetPluginManager().GetPlugin(pluginName)
+	plugin := lynx.Lynx().GetPluginManager().GetPlugin(pluginName)
 	if plugin == nil {
 		return nil
 	}

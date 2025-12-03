@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
-	"github.com/go-lynx/lynx/app"
-	"github.com/go-lynx/lynx/app/log"
+	"github.com/go-lynx/lynx"
+	"github.com/go-lynx/lynx/log"
 	"github.com/go-lynx/lynx/plugins"
-	"github.com/go-lynx/lynx/plugins/polaris/conf"
+	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
@@ -238,14 +238,14 @@ func (p *PlugPolaris) StartupTasks() error {
 	// Create a new Polaris instance using the previously initialized SDK and configuration.
 	pol := polaris.New(
 		sdk,
-		polaris.WithService(app.GetName()),
+		polaris.WithService(lynx.GetName()),
 		polaris.WithNamespace(p.conf.Namespace),
 	)
 	// Save the Polaris instance to p.polaris.
 	p.polaris = &pol
 
 	// Set the Polaris control plane as the Lynx application's control plane.
-	err = app.Lynx().SetControlPlane(p)
+	err = lynx.Lynx().SetControlPlane(p)
 	if err != nil {
 		log.Errorf("Failed to set control plane: %v", err)
 		if p.metrics != nil {
@@ -255,7 +255,7 @@ func (p *PlugPolaris) StartupTasks() error {
 	}
 
 	// Get the Lynx application's control plane startup configuration.
-	cfg, err := app.Lynx().InitControlPlaneConfig()
+	cfg, err := lynx.Lynx().InitControlPlaneConfig()
 	if err != nil {
 		log.Errorf("Failed to init control plane config: %v", err)
 		if p.metrics != nil {
@@ -265,7 +265,7 @@ func (p *PlugPolaris) StartupTasks() error {
 	}
 
 	// Load plugins from the plugin list.
-	app.Lynx().GetPluginManager().LoadPlugins(cfg)
+	lynx.Lynx().GetPluginManager().LoadPlugins(cfg)
 
 	p.setInitialized()
 	log.Infof("Polaris plugin initialized successfully")

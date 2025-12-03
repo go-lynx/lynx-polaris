@@ -3,7 +3,7 @@ package polaris
 import (
 	"time"
 
-	"github.com/go-lynx/lynx/app/log"
+	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
 

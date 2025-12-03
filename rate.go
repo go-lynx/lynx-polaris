@@ -3,7 +3,7 @@ package polaris
 import (
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
 	"github.com/go-kratos/kratos/v2/selector"
-	"github.com/go-lynx/lynx/app/log"
+	"github.com/go-lynx/lynx/log"
 )
 
 // NewNodeRouter creates Polaris node filter

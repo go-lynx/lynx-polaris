@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-lynx/lynx/plugins/polaris/conf"
+	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/durationpb"
