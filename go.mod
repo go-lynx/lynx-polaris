@@ -7,7 +7,7 @@ toolchain go1.25.3
 require (
 	github.com/go-kratos/kratos/contrib/polaris/v2 v2.0.0-20250731084034-f7f150c3f139
 	github.com/go-kratos/kratos/v2 v2.9.1
-	github.com/go-lynx/lynx v1.5.2
+	github.com/go-lynx/lynx v1.5.3
 	github.com/polarismesh/polaris-go v1.3.0
 	github.com/prometheus/client_golang v1.23.0
 	github.com/stretchr/testify v1.11.1
