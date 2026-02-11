@@ -1,11 +1,11 @@
 package polaris
 
-// GetNamespace method is used to get the namespace corresponding to the PlugPolaris instance.
-// Namespaces are typically used in Polaris to isolate configurations and services for different environments or businesses.
-// This method obtains the PlugPolaris plugin instance by calling the GetPlugin function,
-// then extracts the namespace information from the configuration of that instance.
-// The return value is a string type, representing the obtained namespace.
+// GetNamespace returns the namespace of the PlugPolaris instance.
+// Safe to call after destroy: returns "default" when plugin is destroyed or not configured.
 func (p *PlugPolaris) GetNamespace() string {
+	if p.IsDestroyed() {
+		return "default"
+	}
 	if p.conf != nil {
 		return p.conf.Namespace
 	}

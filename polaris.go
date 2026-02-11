@@ -98,6 +98,8 @@ func NewPolarisControlPlane() *PlugPolaris {
 		healthCheckCh:  make(chan struct{}),
 		activeWatchers: make(map[string]*ServiceWatcher),
 		configWatchers: make(map[string]*ConfigWatcher),
+		serviceCache:   make(map[string]interface{}),
+		configCache:    make(map[string]interface{}),
 	}
 }
 
@@ -147,6 +149,14 @@ func (p *PlugPolaris) setDefaultConfig() {
 	if p.conf.Timeout == nil {
 		p.conf.Timeout = conf.GetDefaultTimeout()
 	}
+	// Default shutdown timeout for graceful cleanup
+	if p.conf.ShutdownTimeout == nil {
+		p.conf.ShutdownTimeout = conf.GetDefaultShutdownTimeout()
+	}
+	// Default circuit breaker threshold
+	if p.conf.CircuitBreakerThreshold <= 0 {
+		p.conf.CircuitBreakerThreshold = float32(conf.DefaultCircuitBreakerThreshold)
+	}
 }
 
 // validateConfig validates configuration
@@ -169,11 +179,26 @@ func (p *PlugPolaris) initComponents() error {
 	// Initialize monitoring metrics
 	p.metrics = NewPolarisMetrics()
 
-	// Initialize retry manager
-	p.retryManager = NewRetryManager(3, time.Second)
+	// Initialize retry manager from config
+	maxRetry := int(p.conf.MaxRetryTimes)
+	if maxRetry <= 0 {
+		maxRetry = 3
+	}
+	retryInterval := time.Second
+	if p.conf.RetryInterval != nil && p.conf.RetryInterval.AsDuration() > 0 {
+		retryInterval = p.conf.RetryInterval.AsDuration()
+	} else {
+		retryInterval = conf.DefaultRetryInterval
+	}
+	p.retryManager = NewRetryManager(maxRetry, retryInterval)
 
-	// Initialize circuit breaker
-	p.circuitBreaker = NewCircuitBreaker(0.5)
+	// Initialize circuit breaker from config (threshold + half-open timeout from defaults)
+	threshold := float64(p.conf.CircuitBreakerThreshold)
+	if threshold <= 0 {
+		threshold = conf.DefaultCircuitBreakerThreshold
+	}
+	halfOpenTimeout := conf.DefaultCircuitBreakerHalfOpenTimeout
+	p.circuitBreaker = NewCircuitBreaker(threshold, halfOpenTimeout)
 
 	return nil
 }

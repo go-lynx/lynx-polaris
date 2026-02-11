@@ -103,12 +103,13 @@ func (r *RetryManager) calculateBackoff(attempt int) time.Duration {
 // CircuitBreaker circuit breaker
 // Implements simple circuit breaker protection mechanism
 type CircuitBreaker struct {
-	threshold    float64
-	failureCount int
-	successCount int
-	lastFailure  time.Time
-	state        CircuitState
-	mu           chan struct{} // Used as mutex lock
+	threshold       float64
+	halfOpenTimeout time.Duration
+	failureCount    int
+	successCount    int
+	lastFailure     time.Time
+	state           CircuitState
+	mu              chan struct{} // Used as mutex lock
 }
 
 // CircuitState circuit breaker state
@@ -120,12 +121,16 @@ const (
 	CircuitStateHalfOpen                     // Half-open state: attempting recovery
 )
 
-// NewCircuitBreaker creates new circuit breaker
-func NewCircuitBreaker(threshold float64) *CircuitBreaker {
+// NewCircuitBreaker creates new circuit breaker with configurable threshold and half-open timeout
+func NewCircuitBreaker(threshold float64, halfOpenTimeout time.Duration) *CircuitBreaker {
+	if halfOpenTimeout <= 0 {
+		halfOpenTimeout = 30 * time.Second
+	}
 	return &CircuitBreaker{
-		threshold: threshold,
-		state:     CircuitStateClosed,
-		mu:        make(chan struct{}, 1), // Buffered channel used as mutex lock
+		threshold:       threshold,
+		halfOpenTimeout: halfOpenTimeout,
+		state:           CircuitStateClosed,
+		mu:              make(chan struct{}, 1),
 	}
 }
 
@@ -138,8 +143,8 @@ func (cb *CircuitBreaker) Do(operation func() error) error {
 	// Check circuit breaker state
 	switch cb.state {
 	case CircuitStateOpen:
-		// Check if should attempt recovery
-		if time.Since(cb.lastFailure) > 30*time.Second {
+		// Check if should attempt recovery after halfOpenTimeout
+		if time.Since(cb.lastFailure) > cb.halfOpenTimeout {
 			cb.state = CircuitStateHalfOpen
 			log.Infof("Circuit breaker transitioning to half-open state")
 		} else {

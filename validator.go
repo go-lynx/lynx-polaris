@@ -2,6 +2,7 @@ package polaris
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -115,12 +116,12 @@ func (v *Validator) validateBasicFields(result *ValidationResult) {
 		}
 	}
 
-	// Validate Token (if provided)
+	// Validate Token (if provided). Never put token value in result (security).
 	if v.config.Token != "" && len(v.config.Token) > 1024 {
-		result.AddError("token", "token length must not exceed 1024 characters", v.config.Token)
+		result.AddError("token", "token length must not exceed 1024 characters", "[REDACTED]")
 	}
 	if v.config.Token != "" && len(v.config.Token) < 8 {
-		result.AddError("token", "token must be at least 8 characters long", v.config.Token)
+		result.AddError("token", "token must be at least 8 characters long", "[REDACTED]")
 	}
 }
 
@@ -169,11 +170,6 @@ func (v *Validator) validateDependencies(result *ValidationResult) {
 			result.AddError("timeout", "Timeout should be less than TTL to ensure proper operation", timeout)
 		}
 	}
-
-	// Validate coordination between namespace and service
-	if v.config.Namespace == "default" && v.config.Token != "" {
-		result.AddError("token", "Token should not be required for default namespace", v.config.Token)
-	}
 }
 
 // validateSecurityConfigs validates security-related configurations
@@ -182,7 +178,7 @@ func (v *Validator) validateSecurityConfigs(result *ValidationResult) {
 	if v.config.Token != "" {
 		// Check token length
 		if len(v.config.Token) < 8 {
-			result.AddError("token", "token must be at least 8 characters long for security", v.config.Token)
+			result.AddError("token", "token must be at least 8 characters long for security", "[REDACTED]")
 		}
 
 		// Check token complexity (must contain both letters and digits)
@@ -201,17 +197,35 @@ func (v *Validator) validateSecurityConfigs(result *ValidationResult) {
 		}
 	}
 
-	// Validate namespace security
-	if v.config.Namespace != "" {
-		// Check for sensitive words
-		sensitiveChars := []string{"admin", "root", "system", "internal"}
-		namespaceLower := strings.ToLower(v.config.Namespace)
-		for _, sensitive := range sensitiveChars {
-			if strings.Contains(namespaceLower, sensitive) {
-				result.AddError("namespace", fmt.Sprintf("namespace should not contain sensitive word: %s", sensitive), v.config.Namespace)
-			}
+	// Validate namespace security (optional; disable via POLARIS_DISABLE_NAMESPACE_SENSITIVE_CHECK=1 or override list via POLARIS_NAMESPACE_SENSITIVE_WORDS)
+	if v.config.Namespace == "" {
+		return
+	}
+	if os.Getenv("POLARIS_DISABLE_NAMESPACE_SENSITIVE_CHECK") == "1" || os.Getenv("POLARIS_DISABLE_NAMESPACE_SENSITIVE_CHECK") == "true" {
+		return
+	}
+	sensitiveChars := defaultNamespaceSensitiveWords()
+	if override := os.Getenv("POLARIS_NAMESPACE_SENSITIVE_WORDS"); override != "" {
+		sensitiveChars = strings.Split(override, ",")
+		for i, s := range sensitiveChars {
+			sensitiveChars[i] = strings.TrimSpace(strings.ToLower(s))
 		}
 	}
+	namespaceLower := strings.ToLower(v.config.Namespace)
+	for _, sensitive := range sensitiveChars {
+		if sensitive == "" {
+			continue
+		}
+		if strings.Contains(namespaceLower, sensitive) {
+			result.AddError("namespace", fmt.Sprintf("namespace should not contain sensitive word: %s", sensitive), v.config.Namespace)
+			return
+		}
+	}
+}
+
+// defaultNamespaceSensitiveWords returns the default list when not overridden by env
+func defaultNamespaceSensitiveWords() []string {
+	return []string{"admin", "root", "system", "internal"}
 }
 
 // validateNetworkConfigs validates network-related configurations

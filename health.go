@@ -117,31 +117,45 @@ func (p *PlugPolaris) checkSDKConnection() error {
 	return nil
 }
 
-// checkServiceDiscoveryHealth checks service discovery functionality.
+// checkServiceDiscoveryHealth checks service discovery with a real GetInstances probe.
 func (p *PlugPolaris) checkServiceDiscoveryHealth() error {
-	// Check status of components related to service discovery
-	if p.activeWatchers == nil {
-		return fmt.Errorf("service watchers not initialized")
+	consumerAPI := api.NewConsumerAPIByContext(p.sdk)
+	if consumerAPI == nil {
+		return fmt.Errorf("failed to create consumer API for discovery probe")
 	}
-
-	// Check whether there are active watchers
-	watcherCount := len(p.activeWatchers)
-	log.Debugf("Service discovery health: %d active watchers", watcherCount)
-
+	req := &api.GetInstancesRequest{
+		GetInstancesRequest: model.GetInstancesRequest{
+			Service:   "lynx-polaris-health-probe",
+			Namespace: p.conf.Namespace,
+		},
+	}
+	_, err := consumerAPI.GetInstances(req)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no instances") {
+			log.Debugf("Service discovery probe passed (service not found is expected)")
+			return nil
+		}
+		return fmt.Errorf("service discovery probe failed: %w", err)
+	}
+	log.Debugf("Service discovery health: probe OK")
 	return nil
 }
 
-// checkConfigManagementHealth checks configuration management functionality.
+// checkConfigManagementHealth checks configuration management with a real GetConfigFile probe.
 func (p *PlugPolaris) checkConfigManagementHealth() error {
-	// Check status of components related to configuration management
-	if p.configWatchers == nil {
-		return fmt.Errorf("config watchers not initialized")
+	configAPI := api.NewConfigFileAPIBySDKContext(p.sdk)
+	if configAPI == nil {
+		return fmt.Errorf("failed to create config API for config probe")
 	}
-
-	// Check whether there are active config watchers
-	configWatcherCount := len(p.configWatchers)
-	log.Debugf("Config management health: %d active config watchers", configWatcherCount)
-
+	_, err := configAPI.GetConfigFile(p.conf.Namespace, "DEFAULT_GROUP", "lynx-polaris-health-probe.yaml")
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "NotFound") {
+			log.Debugf("Config management probe passed (file not found is expected)")
+			return nil
+		}
+		return fmt.Errorf("config management probe failed: %w", err)
+	}
+	log.Debugf("Config management health: probe OK")
 	return nil
 }
 
@@ -158,7 +172,7 @@ func (p *PlugPolaris) checkRateLimitHealth() error {
 
 	// Check circuit breaker state
 	breakerState := p.circuitBreaker.GetState()
-	log.Debugf("Rate limit health: circuit breaker state = %s", breakerState)
+	log.Debugf("Rate limit health: circuit breaker state = %d", breakerState)
 
 	return nil
 }

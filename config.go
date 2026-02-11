@@ -19,10 +19,18 @@ import (
 // ConfigAdapter configuration adapter
 // Responsibility: provide Polaris configuration center related functionality
 
-// GetConfig gets configuration from Polaris configuration center
-// This method retrieves the corresponding configuration source from Polaris configuration center based on the provided configuration file name and group name
+// GetConfig gets configuration from Polaris configuration center.
+// Returns (nil, nil) when plugin is not initialized (matching DefaultControlPlane).
+// Returns (nil, error) when plugin is destroyed.
 func (p *PlugPolaris) GetConfig(fileName string, group string) (config.Source, error) {
-	return GetPolaris().Config(
+	if p.IsDestroyed() {
+		return nil, NewInitError("Polaris plugin has been destroyed")
+	}
+	pol := GetPolaris()
+	if pol == nil {
+		return nil, nil
+	}
+	return pol.Config(
 		polaris.WithConfigFile(
 			polaris.File{
 				Name:  fileName,

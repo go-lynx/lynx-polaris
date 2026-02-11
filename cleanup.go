@@ -2,12 +2,25 @@ package polaris
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-lynx/lynx"
+	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/api"
 )
+
+// restoreControlPlane sets Lynx control plane back to default so the app no longer uses this plugin.
+func (p *PlugPolaris) restoreControlPlane() {
+	if lynx.Lynx() == nil {
+		return
+	}
+	log.Infof("Removing from Lynx control plane")
+	if err := lynx.Lynx().SetControlPlane(&lynx.DefaultControlPlane{}); err != nil {
+		log.Warnf("Failed to restore default control plane: %v", err)
+	}
+}
 
 // stopHealthCheck stops health check
 func (p *PlugPolaris) stopHealthCheck() {
@@ -76,10 +89,10 @@ func (p *PlugPolaris) closeSDKConnection() {
 			providerAPI.Destroy()
 		}
 
+		// ConfigFileAPI and LimitAPI in polaris-go do not expose Destroy(); SDK context destroy below releases resources.
 		if configAPI != nil {
 			log.Infof("Closing config API")
 		}
-
 		if limitAPI != nil {
 			log.Infof("Closing limit API")
 		}
@@ -106,18 +119,13 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 		}
 
 		// Implement specific Polaris instance destruction logic
-		// 1. Remove from Lynx application control plane
-		if lynx.Lynx() != nil {
-			log.Infof("Removing from Lynx control plane")
-		}
-
-		// 2. Stop all services of Polaris instance
+		// 1. Stop all services of Polaris instance (control plane already restored in CleanupTasks)
 		log.Infof("Stopping Polaris instance services")
 
-		// 3. Clean up instance-related resources
+		// 2. Clean up instance-related resources
 		log.Infof("Cleaning up instance resources")
 
-		// 4. Record destruction statistics
+		// 3. Record destruction statistics
 		destroyStats := map[string]interface{}{
 			"service_name":  lynx.GetName(),
 			"namespace":     p.conf.Namespace,
@@ -204,8 +212,8 @@ func (p *PlugPolaris) getCleanupStats() map[string]interface{} {
 	stats := map[string]interface{}{
 		"cleanup_time": time.Now().Unix(),
 		"plugin_state": map[string]interface{}{
-			"initialized": p.initialized,
-			"destroyed":   p.destroyed,
+			"initialized": atomic.LoadInt32(&p.initialized),
+			"destroyed":   atomic.LoadInt32(&p.destroyed),
 		},
 		"resources": map[string]interface{}{
 			"sdk_closed":         p.sdk == nil,
@@ -219,20 +227,29 @@ func (p *PlugPolaris) getCleanupStats() map[string]interface{} {
 	return stats
 }
 
-// CleanupTasks cleanup tasks
+// getShutdownTimeoutDuration returns configured shutdown timeout for cleanup
+func (p *PlugPolaris) getShutdownTimeoutDuration() time.Duration {
+	if p.conf != nil && p.conf.ShutdownTimeout != nil && p.conf.ShutdownTimeout.AsDuration() > 0 {
+		d := p.conf.ShutdownTimeout.AsDuration()
+		if d < conf.MinShutdownTimeout {
+			d = conf.MinShutdownTimeout
+		}
+		if d > conf.MaxShutdownTimeout {
+			d = conf.MaxShutdownTimeout
+		}
+		return d
+	}
+	return conf.DefaultShutdownTimeout
+}
+
+// CleanupTasks runs cleanup with configurable shutdown timeout; only SDK/instance teardown is limited by timeout.
 func (p *PlugPolaris) CleanupTasks() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.IsInitialized() {
+	if !p.IsInitialized() || p.IsDestroyed() {
+		p.mu.Unlock()
 		return nil
 	}
-
-	if p.IsDestroyed() {
-		return nil
-	}
-
-	// Record cleanup operation metrics
+	p.setDestroyed()
 	if p.metrics != nil {
 		p.metrics.RecordSDKOperation("cleanup", "start")
 		defer func() {
@@ -241,28 +258,37 @@ func (p *PlugPolaris) CleanupTasks() error {
 			}
 		}()
 	}
+	timeout := p.getShutdownTimeoutDuration()
+	p.mu.Unlock()
 
-	log.Infof("Destroying Polaris plugin")
+	log.Infof("Destroying Polaris plugin (shutdown timeout: %v)", timeout)
 
-	// 1. Stop health check
+	p.restoreControlPlane()
 	p.stopHealthCheck()
-
-	// 2. Clean up watchers
 	p.cleanupWatchers()
 
-	// 3. Close SDK connection
-	p.closeSDKConnection()
+	done := make(chan struct{})
+	go func() {
+		p.closeSDKConnection()
+		p.destroyPolarisInstance()
+		close(done)
+	}()
 
-	// 4. Destroy Polaris instance
-	p.destroyPolarisInstance()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warnf("Polaris SDK/instance teardown did not finish within %v", timeout)
+	}
 
-	// 5. Release memory resources
-	p.releaseMemoryResources()
-
-	// 6. Stop background tasks
+	p.mu.Lock()
 	p.stopBackgroundTasks()
+	if p.metrics != nil {
+		p.metrics.Unregister()
+		p.metrics = nil
+	}
+	p.releaseMemoryResources()
+	p.mu.Unlock()
 
-	p.setDestroyed()
 	log.Infof("Polaris plugin destroyed successfully")
 	return nil
 }

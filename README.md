@@ -17,7 +17,7 @@ This plugin provides Polaris service governance integration for the Lynx framewo
 ## Installation
 
 ```bash
-go get github.com/go-lynx/lynx/plugins/polaris
+go get github.com/go-lynx/lynx-polaris
 ```
 
 ## Configuration
@@ -77,7 +77,7 @@ package main
 
 import (
     "github.com/go-lynx/lynx/app"
-    "github.com/go-lynx/lynx/plugins/polaris"
+    "github.com/go-lynx/lynx-polaris"
 )
 
 func main() {
@@ -241,7 +241,7 @@ defer configWatcher.Stop()
 
 ```go
 // Create a circuit breaker
-circuitBreaker := polaris.NewCircuitBreaker(0.5)
+circuitBreaker := polaris.NewCircuitBreaker(0.5, 30*time.Second)
 
 // Use the circuit breaker to protect operations
 err := circuitBreaker.Do(func() error {
@@ -287,6 +287,19 @@ metrics := plugin.GetMetrics()
 // - Health check results
 // - Connection status
 ```
+
+## Production Readiness
+
+- **Graceful shutdown**: On unload, the plugin marks itself destroyed first, restores Lynx control plane to default, then closes watchers, SDK (Consumer/Provider API), and releases resources. Shutdown is bounded by `shutdown_timeout` (config or default 30s); only SDK/instance teardown is limited by this timeout so the process does not hang.
+- **Circuit breaker**: Threshold is configurable via `circuit_breaker_threshold` (default 0.5). Half-open timeout is fixed at 30s (see `conf.DefaultCircuitBreakerHalfOpenTimeout`). Retry uses `max_retry_times` and `retry_interval` from config.
+- **Sensitive data**: Token and other secrets are never written to validation errors or logs; validation errors use `[REDACTED]` for token-related fields.
+- **Destroyed-state safety**: After destroy, `GetNamespace()` returns `"default"`, `GetConfig()` and similar APIs return an error instead of panicking. Control plane is switched back to `DefaultControlPlane` so the app no longer uses the plugin.
+- **Health checks**: Health check runs real probes: SDK connection, service discovery (`GetInstances`), config management (`GetConfigFile`), and rate-limit component state.
+- **Namespace validation**: The “sensitive words” check for namespace can be disabled with `POLARIS_DISABLE_NAMESPACE_SENSITIVE_CHECK=1` (or `true`). Override the list with `POLARIS_NAMESPACE_SENSITIVE_WORDS=word1,word2`.
+- **Default namespace + token**: Using token in the `default` namespace is allowed (no validation error).
+- **Metrics**: On plugin unload, all Prometheus metrics are unregistered via `Unregister()` so re-loading the plugin does not duplicate metrics.
+- **Extensibility**: Alert hooks (`sendToMonitoringSystem`, `sendToMessageQueue`, etc.) and load-balancer hooks (`updateKratosLoadBalancer`, etc.) are currently no-op with logging. For production, wire these to your monitoring/alerting and LB systems as needed.
+- **Proto**: If you generate code from `conf/polaris.proto`, set `go_package` to your module path (e.g. `github.com/go-lynx/lynx-polaris/conf`) to match the repository.
 
 ## Architecture
 

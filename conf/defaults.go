@@ -35,9 +35,12 @@ const (
 	MaxRetryInterval     = 30 * time.Second
 
 	// Circuit breaker related
-	DefaultCircuitBreakerThreshold = 0.5
-	MinCircuitBreakerThreshold     = 0.1
-	MaxCircuitBreakerThreshold     = 0.9
+	DefaultCircuitBreakerThreshold       = 0.5
+	MinCircuitBreakerThreshold           = 0.1
+	MaxCircuitBreakerThreshold           = 0.9
+	DefaultCircuitBreakerHalfOpenTimeout = 30 * time.Second
+	MinCircuitBreakerHalfOpenTimeout     = 5 * time.Second
+	MaxCircuitBreakerHalfOpenTimeout     = 300 * time.Second
 
 	// Health check related
 	DefaultHealthCheckInterval = 30 * time.Second
@@ -106,4 +109,9 @@ func GetDefaultRetryInterval() *durationpb.Duration {
 // GetDefaultShutdownTimeout get default shutdown timeout
 func GetDefaultShutdownTimeout() *durationpb.Duration {
 	return &durationpb.Duration{Seconds: int64(DefaultShutdownTimeout.Seconds())}
+}
+
+// GetDefaultCircuitBreakerHalfOpenTimeout returns default half-open timeout for circuit breaker
+func GetDefaultCircuitBreakerHalfOpenTimeout() *durationpb.Duration {
+	return &durationpb.Duration{Seconds: int64(DefaultCircuitBreakerHalfOpenTimeout.Seconds())}
 }

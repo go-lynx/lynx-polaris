@@ -9,7 +9,7 @@ import (
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
 
-// MiddlewareAdapter 
+// MiddlewareAdapter
 // Responsibility: provide HTTP/gRPC rate limit middleware and router middleware.
 
 // HTTPRateLimit creates HTTP rate limit middleware.
@@ -19,12 +19,16 @@ func (p *PlugPolaris) HTTPRateLimit() middleware.Middleware {
 		log.Warnf("Polaris plugin not initialized, returning nil HTTP rate limit middleware: %v", err)
 		return nil
 	}
+	if p.polaris == nil || p.conf == nil {
+		log.Warnf("Polaris instance or config is nil, returning nil HTTP rate limit middleware")
+		return nil
+	}
 
 	log.Infof("Synchronizing [HTTP] rate limit policy")
 
-	return polaris.Ratelimit(GetPolaris().Limiter(
+	return polaris.Ratelimit(p.polaris.Limiter(
 		polaris.WithLimiterService(lynx.GetName()),
-		polaris.WithLimiterNamespace(GetPlugin().conf.Namespace),
+		polaris.WithLimiterNamespace(p.conf.Namespace),
 	))
 }
 
@@ -35,12 +39,16 @@ func (p *PlugPolaris) GRPCRateLimit() middleware.Middleware {
 		log.Warnf("Polaris plugin not initialized, returning nil gRPC rate limit middleware: %v", err)
 		return nil
 	}
+	if p.polaris == nil || p.conf == nil {
+		log.Warnf("Polaris instance or config is nil, returning nil gRPC rate limit middleware")
+		return nil
+	}
 
 	log.Infof("Synchronizing [GRPC] rate limit policy")
 
-	return polaris.Ratelimit(GetPolaris().Limiter(
+	return polaris.Ratelimit(p.polaris.Limiter(
 		polaris.WithLimiterService(lynx.GetName()),
-		polaris.WithLimiterNamespace(GetPlugin().conf.Namespace),
+		polaris.WithLimiterNamespace(p.conf.Namespace),
 	))
 }
 

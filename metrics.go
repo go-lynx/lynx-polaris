@@ -54,8 +54,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "sdk_operations_total",
-				Help: "Total number of SDK operations",
+				Name:      "sdk_operations_total",
+				Help:      "Total number of SDK operations",
 			},
 			[]string{"operation", "status"},
 		),
@@ -63,9 +63,9 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name:    "sdk_operations_duration_seconds",
-				Help:    "Duration of SDK operations",
-				Buckets: prometheus.DefBuckets,
+				Name:      "sdk_operations_duration_seconds",
+				Help:      "Duration of SDK operations",
+				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"operation"},
 		),
@@ -73,8 +73,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "sdk_errors_total",
-				Help: "Total number of SDK errors",
+				Name:      "sdk_errors_total",
+				Help:      "Total number of SDK errors",
 			},
 			[]string{"operation", "error_type"},
 		),
@@ -84,8 +84,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "service_discovery_total",
-				Help: "Total number of service discovery operations",
+				Name:      "service_discovery_total",
+				Help:      "Total number of service discovery operations",
 			},
 			[]string{"service", "namespace", "status"},
 		),
@@ -93,9 +93,9 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name:    "service_discovery_duration_seconds",
-				Help:    "Duration of service discovery operations",
-				Buckets: prometheus.DefBuckets,
+				Name:      "service_discovery_duration_seconds",
+				Help:      "Duration of service discovery operations",
+				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"service", "namespace"},
 		),
@@ -103,8 +103,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.GaugeOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "service_instances_total",
-				Help: "Total number of service instances",
+				Name:      "service_instances_total",
+				Help:      "Total number of service instances",
 			},
 			[]string{"service", "namespace", "status"},
 		),
@@ -114,8 +114,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "service_registration_total",
-				Help: "Total number of service registration operations",
+				Name:      "service_registration_total",
+				Help:      "Total number of service registration operations",
 			},
 			[]string{"service", "namespace", "status"},
 		),
@@ -123,9 +123,9 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name:    "service_registration_duration_seconds",
-				Help:    "Duration of service registration operations",
-				Buckets: prometheus.DefBuckets,
+				Name:      "service_registration_duration_seconds",
+				Help:      "Duration of service registration operations",
+				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"service", "namespace"},
 		),
@@ -133,8 +133,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "service_heartbeat_total",
-				Help: "Total number of service heartbeat operations",
+				Name:      "service_heartbeat_total",
+				Help:      "Total number of service heartbeat operations",
 			},
 			[]string{"service", "namespace", "status"},
 		),
@@ -144,8 +144,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "config_operations_total",
-				Help: "Total number of config operations",
+				Name:      "config_operations_total",
+				Help:      "Total number of config operations",
 			},
 			[]string{"operation", "file", "group", "status"},
 		),
@@ -153,9 +153,9 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name:    "config_operations_duration_seconds",
-				Help:    "Duration of config operations",
-				Buckets: prometheus.DefBuckets,
+				Name:      "config_operations_duration_seconds",
+				Help:      "Duration of config operations",
+				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"operation", "file", "group"},
 		),
@@ -163,8 +163,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "config_changes_total",
-				Help: "Total number of config changes",
+				Name:      "config_changes_total",
+				Help:      "Total number of config changes",
 			},
 			[]string{"file", "group"},
 		),
@@ -174,8 +174,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "route_operations_total",
-				Help: "Total number of route operations",
+				Name:      "route_operations_total",
+				Help:      "Total number of route operations",
 			},
 			[]string{"service", "namespace", "status"},
 		),
@@ -183,9 +183,9 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name:    "route_operations_duration_seconds",
-				Help:    "Duration of route operations",
-				Buckets: prometheus.DefBuckets,
+				Name:      "route_operations_duration_seconds",
+				Help:      "Duration of route operations",
+				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"service", "namespace"},
 		),
@@ -195,8 +195,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "rate_limit_requests_total",
-				Help: "Total number of rate limit requests",
+				Name:      "rate_limit_requests_total",
+				Help:      "Total number of rate limit requests",
 			},
 			[]string{"service", "namespace", "status"},
 		),
@@ -204,8 +204,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "rate_limit_rejected_total",
-				Help: "Total number of rate limit rejections",
+				Name:      "rate_limit_rejected_total",
+				Help:      "Total number of rate limit rejections",
 			},
 			[]string{"service", "namespace"},
 		),
@@ -213,8 +213,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.GaugeOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "rate_limit_quota_used",
-				Help: "Rate limit quota usage",
+				Name:      "rate_limit_quota_used",
+				Help:      "Rate limit quota usage",
 			},
 			[]string{"service", "namespace"},
 		),
@@ -224,8 +224,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "health_check_total",
-				Help: "Total number of health checks",
+				Name:      "health_check_total",
+				Help:      "Total number of health checks",
 			},
 			[]string{"component", "status"},
 		),
@@ -233,9 +233,9 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name:    "health_check_duration_seconds",
-				Help:    "Duration of health checks",
-				Buckets: prometheus.DefBuckets,
+				Name:      "health_check_duration_seconds",
+				Help:      "Duration of health checks",
+				Buckets:   prometheus.DefBuckets,
 			},
 			[]string{"component"},
 		),
@@ -243,8 +243,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "health_check_failed_total",
-				Help: "Total number of failed health checks",
+				Name:      "health_check_failed_total",
+				Help:      "Total number of failed health checks",
 			},
 			[]string{"component", "error_type"},
 		),
@@ -254,8 +254,8 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.GaugeOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "connection_total",
-				Help: "Total number of connections",
+				Name:      "connection_total",
+				Help:      "Total number of connections",
 			},
 			[]string{"type", "status"},
 		),
@@ -263,11 +263,32 @@ func NewPolarisMetrics() *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
-				Name: "connection_errors_total",
-				Help: "Total number of connection errors",
+				Name:      "connection_errors_total",
+				Help:      "Total number of connection errors",
 			},
 			[]string{"type", "error_type"},
 		),
+	}
+}
+
+// collectors returns all Prometheus collectors for unregister on plugin unload
+func (m *Metrics) collectors() []prometheus.Collector {
+	return []prometheus.Collector{
+		m.sdkOperationsTotal, m.sdkOperationsDuration, m.sdkErrorsTotal,
+		m.serviceDiscoveryTotal, m.serviceDiscoveryDuration, m.serviceInstancesTotal,
+		m.serviceRegistrationTotal, m.serviceRegistrationDuration, m.serviceHeartbeatTotal,
+		m.configOperationsTotal, m.configOperationsDuration, m.configChangesTotal,
+		m.routeOperationsTotal, m.routeOperationsDuration,
+		m.rateLimitRequestsTotal, m.rateLimitRejectedTotal, m.rateLimitQuotaUsed,
+		m.healthCheckTotal, m.healthCheckDuration, m.healthCheckFailed,
+		m.connectionTotal, m.connectionErrorsTotal,
+	}
+}
+
+// Unregister unregisters all metrics from the default Prometheus registry (call on plugin cleanup)
+func (m *Metrics) Unregister() {
+	for _, c := range m.collectors() {
+		_ = prometheus.DefaultRegisterer.Unregister(c)
 	}
 }
 

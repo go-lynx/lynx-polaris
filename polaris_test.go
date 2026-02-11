@@ -308,7 +308,7 @@ func BenchmarkRetryManager(b *testing.B) {
 
 // BenchmarkCircuitBreaker circuit breaker performance test
 func BenchmarkCircuitBreaker(b *testing.B) {
-	circuitBreaker := NewCircuitBreaker(0.5)
+	circuitBreaker := NewCircuitBreaker(0.5, 30*time.Second)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
