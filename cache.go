@@ -10,6 +10,9 @@ import (
 
 // updateServiceInstanceCache updates service instance cache
 func (p *PlugPolaris) updateServiceInstanceCache(serviceName string, instances []model.Instance) {
+	if p.conf == nil {
+		return
+	}
 	// Implement local cache update logic
 	cacheKey := fmt.Sprintf("service:%s:%s", p.conf.Namespace, serviceName)
 
@@ -51,6 +54,9 @@ func (p *PlugPolaris) updateServiceInstanceCache(serviceName string, instances [
 
 // updateConfigCache updates configuration cache
 func (p *PlugPolaris) updateConfigCache(fileName, group string, config model.ConfigFile) {
+	if p.conf == nil || config == nil {
+		return
+	}
 	// Implement configuration cache update logic
 	cacheKey := fmt.Sprintf("config:%s:%s:%s", p.conf.Namespace, group, fileName)
 
@@ -93,6 +99,9 @@ func (p *PlugPolaris) updateConfigCache(fileName, group string, config model.Con
 
 // getServiceInstanceFromCache retrieves service instances from cache
 func (p *PlugPolaris) getServiceInstanceFromCache(serviceName string) ([]model.Instance, bool) {
+	if p.conf == nil {
+		return nil, false
+	}
 	cacheKey := fmt.Sprintf("service:%s:%s", p.conf.Namespace, serviceName)
 
 	// Use read lock to protect cache reading
@@ -117,6 +126,9 @@ func (p *PlugPolaris) getServiceInstanceFromCache(serviceName string) ([]model.I
 
 // getConfigFromCache retrieves configuration from cache
 func (p *PlugPolaris) getConfigFromCache(fileName, group string) (string, bool) {
+	if p.conf == nil {
+		return "", false
+	}
 	cacheKey := fmt.Sprintf("config:%s:%s:%s", p.conf.Namespace, group, fileName)
 
 	// Use read lock to protect cache reading

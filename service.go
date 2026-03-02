@@ -145,6 +145,9 @@ func (p *PlugPolaris) checkServiceHealth(serviceName string, instances []model.I
 	isolatedCount := 0
 
 	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
 		if instance.IsIsolated() {
 			isolatedCount++
 		} else if instance.IsHealthy() {
@@ -171,8 +174,33 @@ func (p *PlugPolaris) checkServiceHealth(serviceName string, instances []model.I
 	}
 }
 
+// tryStartServiceWatchRetry marks service as retrying and returns true if this goroutine should run the retry.
+// Returns false if a retry is already in progress for this service (deduplication).
+func (p *PlugPolaris) tryStartServiceWatchRetry(serviceName string) bool {
+	p.retryMutex.Lock()
+	defer p.retryMutex.Unlock()
+	if p.retryingServiceWatchers == nil {
+		return false // plugin destroyed or not initialized
+	}
+	if _, exists := p.retryingServiceWatchers[serviceName]; exists {
+		return false
+	}
+	p.retryingServiceWatchers[serviceName] = struct{}{}
+	return true
+}
+
+// finishServiceWatchRetry removes service from retrying set (call when retry completes).
+func (p *PlugPolaris) finishServiceWatchRetry(serviceName string) {
+	p.retryMutex.Lock()
+	defer p.retryMutex.Unlock()
+	if p.retryingServiceWatchers != nil {
+		delete(p.retryingServiceWatchers, serviceName)
+	}
+}
+
 // retryServiceWatch retries service watch
 func (p *PlugPolaris) retryServiceWatch(serviceName string) {
+	defer p.finishServiceWatchRetry(serviceName)
 	log.Infof("Retrying service watch for %s", serviceName)
 
 	// Wait for a while before retrying, but allow cancellation on plugin stop
@@ -222,11 +250,16 @@ func (p *PlugPolaris) notifyDegradationMode(serviceName string, info map[string]
 
 // getServiceDiscoveryStats gets service discovery statistics
 func (p *PlugPolaris) getServiceDiscoveryStats() map[string]interface{} {
+	p.watcherMutex.RLock()
+	activeCount := len(p.activeWatchers)
+	configCount := len(p.configWatchers)
+	p.watcherMutex.RUnlock()
+
 	stats := map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 		"watchers": map[string]interface{}{
-			"active_count": len(p.activeWatchers),
-			"config_count": len(p.configWatchers),
+			"active_count": activeCount,
+			"config_count": configCount,
 		},
 		"cache": p.getCacheStats(),
 	}

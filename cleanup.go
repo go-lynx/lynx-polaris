@@ -35,6 +35,12 @@ func (p *PlugPolaris) stopHealthCheck() {
 func (p *PlugPolaris) cleanupWatchers() {
 	log.Infof("Cleaning up watchers")
 
+	// Clear retry deduplication maps so in-flight retries can finish cleanly
+	p.retryMutex.Lock()
+	p.retryingServiceWatchers = make(map[string]struct{})
+	p.retryingConfigWatchers = make(map[string]struct{})
+	p.retryMutex.Unlock()
+
 	// Clean up service watchers
 	p.watcherMutex.Lock()
 	serviceWatcherCount := len(p.activeWatchers)
@@ -65,10 +71,14 @@ func (p *PlugPolaris) closeSDKConnection() {
 	if p.sdk != nil {
 		log.Infof("Closing SDK connection")
 
+		namespace := "unknown"
+		if p.conf != nil {
+			namespace = p.conf.Namespace
+		}
 		// Get SDK context information
 		sdkInfo := map[string]interface{}{
 			"sdk_type":  fmt.Sprintf("%T", p.sdk),
-			"namespace": p.conf.Namespace,
+			"namespace": namespace,
 		}
 
 		// Implement specific SDK shutdown logic
@@ -111,10 +121,14 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 	if p.polaris != nil {
 		log.Infof("Destroying Polaris instance")
 
+		namespace := "unknown"
+		if p.conf != nil {
+			namespace = p.conf.Namespace
+		}
 		// Record instance information
 		instanceInfo := map[string]interface{}{
 			"service":       lynx.GetName(),
-			"namespace":     p.conf.Namespace,
+			"namespace":     namespace,
 			"instance_type": fmt.Sprintf("%T", p.polaris),
 		}
 
@@ -128,7 +142,7 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 		// 3. Record destruction statistics
 		destroyStats := map[string]interface{}{
 			"service_name":  lynx.GetName(),
-			"namespace":     p.conf.Namespace,
+			"namespace":     namespace,
 			"destroy_time":  time.Now().Unix(),
 			"instance_info": instanceInfo,
 		}
@@ -173,6 +187,12 @@ func (p *PlugPolaris) releaseMemoryResources() {
 	// Clear cache
 	p.clearServiceCache()
 	p.clearConfigCache()
+
+	// Clear retry maps (allow late finishXxx to no-op)
+	p.retryMutex.Lock()
+	p.retryingServiceWatchers = nil
+	p.retryingConfigWatchers = nil
+	p.retryMutex.Unlock()
 
 	log.Infof("Memory resources released")
 }

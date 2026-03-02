@@ -268,6 +268,9 @@ func (d *PolarisDiscovery) GetService(ctx context.Context, name string) ([]*regi
 
 	var instances []*registry.ServiceInstance
 	for _, instance := range resp.Instances {
+		if instance == nil {
+			continue
+		}
 		endpoint := fmt.Sprintf("%s://%s:%d", instance.GetProtocol(), instance.GetHost(), instance.GetPort())
 
 		instances = append(instances, &registry.ServiceInstance{
@@ -391,6 +394,9 @@ func (w *PolarisWatcher) Next() ([]*registry.ServiceInstance, error) {
 			// Build current key
 			var keyBuilder strings.Builder
 			for _, inst := range resp.Instances {
+				if inst == nil {
+					continue
+				}
 				keyBuilder.WriteString(inst.GetId())
 				keyBuilder.WriteString("|")
 				keyBuilder.WriteString(inst.GetHost())
@@ -406,6 +412,9 @@ func (w *PolarisWatcher) Next() ([]*registry.ServiceInstance, error) {
 				// Convert to registry.ServiceInstance
 				var instances []*registry.ServiceInstance
 				for _, instance := range resp.Instances {
+					if instance == nil {
+						continue
+					}
 					endpoint := fmt.Sprintf("%s://%s:%d", instance.GetProtocol(), instance.GetHost(), instance.GetPort())
 					instances = append(instances, &registry.ServiceInstance{
 						ID:        instance.GetId(),

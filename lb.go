@@ -10,6 +10,9 @@ import (
 
 // triggerLoadBalancerUpdate triggers load balancer update
 func (p *PlugPolaris) triggerLoadBalancerUpdate(serviceName string, instances []model.Instance) {
+	if p.conf == nil {
+		return
+	}
 	// Trigger load balancer update
 	// Specific load balancer implementations can be integrated here
 
@@ -18,6 +21,9 @@ func (p *PlugPolaris) triggerLoadBalancerUpdate(serviceName string, instances []
 	instanceList := make([]map[string]interface{}, 0, len(instances))
 
 	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
 		if instance.IsHealthy() {
 			healthyInstances++
 			totalWeight += int(instance.GetWeight())
@@ -91,6 +97,9 @@ func (p *PlugPolaris) updateServiceMeshConfig(serviceName string, lbUpdate map[s
 
 // getLoadBalancerStats gets load balancer statistics
 func (p *PlugPolaris) getLoadBalancerStats(serviceName string) map[string]interface{} {
+	if p.conf == nil {
+		return map[string]interface{}{"error": "plugin not configured"}
+	}
 	// Get load balancer statistics
 	stats := map[string]interface{}{
 		"service_name": serviceName,

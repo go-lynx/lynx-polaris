@@ -1,6 +1,7 @@
 package polaris
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -67,7 +68,7 @@ func TestMetrics_Initialization(t *testing.T) {
 
 // TestRetryManager_Functionality tests retry manager functionality
 func TestRetryManager_Functionality(t *testing.T) {
-	retryManager := NewRetryManager(3, 100*time.Millisecond)
+	retryManager := NewRetryManager(3, 1*time.Millisecond)
 	assert.NotNil(t, retryManager)
 
 	// Test successful operation
@@ -79,18 +80,47 @@ func TestRetryManager_Functionality(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, successCount)
 
-	// Skip failure test to avoid log initialization issues
-	t.Skip("Skipping failure test to avoid log initialization issues")
+	// Test failure - exhaust retries
+	attemptCount := 0
+	err = retryManager.DoWithRetry(func() error {
+		attemptCount++
+		return assert.AnError
+	})
+	assert.Error(t, err)
+	assert.Equal(t, 4, attemptCount) // 1 initial + 3 retries
 }
 
 // TestRetryManager_Context tests retry manager context support
 func TestRetryManager_Context(t *testing.T) {
-	t.Skip("Skipping context test to avoid log initialization issues")
+	retryManager := NewRetryManager(3, 1*time.Millisecond)
+	assert.NotNil(t, retryManager)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	err := retryManager.DoWithRetryContext(ctx, func() error {
+		return assert.AnError
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cancelled")
 }
 
 // TestCircuitBreaker_Functionality tests circuit breaker functionality
 func TestCircuitBreaker_Functionality(t *testing.T) {
-	t.Skip("Skipping circuit breaker test to avoid log initialization issues")
+	circuitBreaker := NewCircuitBreaker(0.5, 10*time.Millisecond)
+	assert.NotNil(t, circuitBreaker)
+
+	// Test successful operation
+	err := circuitBreaker.Do(func() error { return nil })
+	assert.NoError(t, err)
+	assert.Equal(t, CircuitStateClosed, circuitBreaker.GetState())
+
+	// Trigger failure: 1 success + 1 failure -> rate 0.5 >= 0.5, circuit opens
+	_ = circuitBreaker.Do(func() error { return assert.AnError })
+	// Next call should get "circuit breaker is open"
+	err = circuitBreaker.Do(func() error { return nil })
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "circuit breaker is open")
 }
 
 // TestServiceWatcher_Functionality tests service watcher functionality
@@ -143,6 +173,15 @@ func TestConfigWatcher_Functionality(t *testing.T) {
 
 	watcher.Stop()
 	assert.False(t, watcher.IsRunning())
+}
+
+// TestValidator_NilConfig tests validator with nil config
+func TestValidator_NilConfig(t *testing.T) {
+	validator := NewValidator(nil)
+	result := validator.Validate()
+	assert.False(t, result.IsValid)
+	assert.NotEmpty(t, result.Errors)
+	assert.Contains(t, result.Error(), "configuration is required")
 }
 
 // TestValidator_Functionality tests configuration validator functionality

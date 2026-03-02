@@ -223,19 +223,20 @@ When multiple configuration files are loaded, the plugin handles conflicts using
    - Merge strategies
    - Any conflicts or overrides
 
-// Set up callbacks for config changes
-configWatcher.SetOnConfigChanged(func(config polaris.ConfigFile) {
-    log.Infof("Config changed: %v", config)
-})
+6. **Set up callbacks for config changes**:
+   ```go
+   configWatcher.SetOnConfigChanged(func(config polaris.ConfigFile) {
+       log.Infof("Config changed: %v", config)
+   })
 
-configWatcher.SetOnError(func(err error) {
-    log.Errorf("Config watch error: %v", err)
-})
+   configWatcher.SetOnError(func(err error) {
+       log.Errorf("Config watch error: %v", err)
+   })
 
-// Start watching
-configWatcher.Start()
-defer configWatcher.Stop()
-```
+   // Start watching
+   configWatcher.Start()
+   defer configWatcher.Stop()
+   ```
 
 ### Circuit Breaker
 
@@ -296,6 +297,7 @@ metrics := plugin.GetMetrics()
 - **Destroyed-state safety**: After destroy, `GetNamespace()` returns `"default"`, `GetConfig()` and similar APIs return an error instead of panicking. Control plane is switched back to `DefaultControlPlane` so the app no longer uses the plugin.
 - **Health checks**: Health check runs real probes: SDK connection, service discovery (`GetInstances`), config management (`GetConfigFile`), and rate-limit component state.
 - **Namespace validation**: The “sensitive words” check for namespace can be disabled with `POLARIS_DISABLE_NAMESPACE_SENSITIVE_CHECK=1` (or `true`). Override the list with `POLARIS_NAMESPACE_SENSITIVE_WORDS=word1,word2`.
+- **Token validation**: Token complexity (letters+digits) is optional; enable with `POLARIS_ENABLE_TOKEN_COMPLEXITY_CHECK=1` for stricter validation. By default, only length (8–1024) is validated for Polaris compatibility.
 - **Default namespace + token**: Using token in the `default` namespace is allowed (no validation error).
 - **Metrics**: On plugin unload, all Prometheus metrics are unregistered via `Unregister()` so re-loading the plugin does not duplicate metrics.
 - **Extensibility**: Alert hooks (`sendToMonitoringSystem`, `sendToMessageQueue`, etc.) and load-balancer hooks (`updateKratosLoadBalancer`, etc.) are currently no-op with logging. For production, wire these to your monitoring/alerting and LB systems as needed.

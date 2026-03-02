@@ -1,6 +1,7 @@
 package polaris
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/go-lynx/lynx/log"
@@ -9,6 +10,9 @@ import (
 
 // handleServiceInstancesChanged handles service instance change events
 func (p *PlugPolaris) handleServiceInstancesChanged(serviceName string, instances []model.Instance) {
+	if p.IsDestroyed() || p.conf == nil {
+		return
+	}
 	log.Infof("Service %s instances changed: %d instances", serviceName, len(instances))
 
 	// Record service discovery metrics
@@ -34,6 +38,9 @@ func (p *PlugPolaris) handleServiceInstancesChanged(serviceName string, instance
 
 // handleServiceWatchError handles service watch error events
 func (p *PlugPolaris) handleServiceWatchError(serviceName string, err error) {
+	if p.IsDestroyed() {
+		return
+	}
 	log.Errorf("Service %s watch error: %v", serviceName, err)
 
 	// Record error metrics
@@ -50,12 +57,17 @@ func (p *PlugPolaris) handleServiceWatchError(serviceName string, err error) {
 	// 3. Try degradation handling
 	p.handleServiceWatchDegradation(serviceName, err)
 
-	// 4. Start retry mechanism
-	go p.retryServiceWatch(serviceName)
+	// 4. Start retry mechanism (deduplicated: only one retry goroutine per service)
+	if p.tryStartServiceWatchRetry(serviceName) {
+		go p.retryServiceWatch(serviceName)
+	}
 }
 
 // notifyServiceChange notifies service changes
 func (p *PlugPolaris) notifyServiceChange(serviceName string, instances []model.Instance) {
+	if p.conf == nil {
+		return
+	}
 	// Implement notification logic
 	notification := map[string]interface{}{
 		"event_type":      "service_change",
@@ -69,6 +81,9 @@ func (p *PlugPolaris) notifyServiceChange(serviceName string, instances []model.
 
 	// Count health status
 	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
 		if instance.IsHealthy() {
 			if count, ok := notification["healthy_count"].(int); ok {
 				notification["healthy_count"] = count + 1
@@ -91,6 +106,9 @@ func (p *PlugPolaris) notifyServiceChange(serviceName string, instances []model.
 
 // handleConfigChanged handles configuration change events
 func (p *PlugPolaris) handleConfigChanged(fileName, group string, config model.ConfigFile) {
+	if p.IsDestroyed() || p.conf == nil {
+		return
+	}
 	log.Infof("Config %s:%s changed", fileName, group)
 
 	// Record configuration change metrics
@@ -116,6 +134,9 @@ func (p *PlugPolaris) handleConfigChanged(fileName, group string, config model.C
 
 // handleConfigWatchError handles configuration watch error events
 func (p *PlugPolaris) handleConfigWatchError(fileName, group string, err error) {
+	if p.IsDestroyed() {
+		return
+	}
 	log.Errorf("Config %s:%s watch error: %v", fileName, group, err)
 
 	// Record error metrics
@@ -132,12 +153,18 @@ func (p *PlugPolaris) handleConfigWatchError(fileName, group string, err error) 
 	// 3. Try degradation handling
 	p.handleConfigWatchDegradation(fileName, group, err)
 
-	// 4. Start retry mechanism
-	go p.retryConfigWatch(fileName, group)
+	// 4. Start retry mechanism (deduplicated: only one retry goroutine per config)
+	configKey := fmt.Sprintf("%s:%s", fileName, group)
+	if p.tryStartConfigWatchRetry(configKey) {
+		go p.retryConfigWatch(fileName, group)
+	}
 }
 
 // notifyConfigChange notifies configuration changes
 func (p *PlugPolaris) notifyConfigChange(fileName, group string, config model.ConfigFile) {
+	if p.conf == nil {
+		return
+	}
 	// Implement notification logic
 	notification := map[string]interface{}{
 		"event_type":     "config_change",
@@ -159,6 +186,9 @@ func (p *PlugPolaris) notifyConfigChange(fileName, group string, config model.Co
 
 // triggerConfigReload triggers configuration reload
 func (p *PlugPolaris) triggerConfigReload(fileName, group string, config model.ConfigFile) {
+	if p.conf == nil {
+		return
+	}
 	// Implement configuration hot reload logic
 	reloadInfo := map[string]interface{}{
 		"config_file":    fileName,
@@ -180,6 +210,9 @@ func (p *PlugPolaris) triggerConfigReload(fileName, group string, config model.C
 
 // validateConfigChange validates configuration changes
 func (p *PlugPolaris) validateConfigChange(fileName, group string, config model.ConfigFile) {
+	if config == nil {
+		return
+	}
 	content := config.GetContent()
 
 	// Basic validation
@@ -199,6 +232,9 @@ func (p *PlugPolaris) validateConfigChange(fileName, group string, config model.
 
 // handleServiceWatchDegradation handles service watch degradation
 func (p *PlugPolaris) handleServiceWatchDegradation(serviceName string, err error) {
+	if p.conf == nil {
+		return
+	}
 	// Implement degradation handling logic
 	log.Warnf("Service watch degradation for %s: %v", serviceName, err)
 
@@ -227,6 +263,9 @@ func (p *PlugPolaris) handleServiceWatchDegradation(serviceName string, err erro
 
 // handleConfigWatchDegradation handles configuration watch degradation
 func (p *PlugPolaris) handleConfigWatchDegradation(fileName, group string, err error) {
+	if p.conf == nil {
+		return
+	}
 	log.Warnf("Config watch degradation for %s:%s: %v", fileName, group, err)
 
 	// Implement degradation handling logic

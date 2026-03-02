@@ -60,6 +60,11 @@ type PlugPolaris struct {
 	configWatchers map[string]*ConfigWatcher  // Active configuration watchers
 	watcherMutex   sync.RWMutex               // Watcher mutex
 
+	// Retry deduplication: prevent multiple retry goroutines for same service/config
+	retryingServiceWatchers map[string]struct{}
+	retryingConfigWatchers  map[string]struct{}
+	retryMutex              sync.Mutex
+
 	// Cache system
 	serviceCache map[string]interface{} // Service instance cache
 	configCache  map[string]interface{} // Configuration cache
@@ -95,11 +100,13 @@ func NewPolarisControlPlane() *PlugPolaris {
 			// Weight
 			math.MaxInt,
 		),
-		healthCheckCh:  make(chan struct{}),
-		activeWatchers: make(map[string]*ServiceWatcher),
-		configWatchers: make(map[string]*ConfigWatcher),
-		serviceCache:   make(map[string]interface{}),
-		configCache:    make(map[string]interface{}),
+		healthCheckCh:           make(chan struct{}),
+		activeWatchers:          make(map[string]*ServiceWatcher),
+		configWatchers:          make(map[string]*ConfigWatcher),
+		retryingServiceWatchers: make(map[string]struct{}),
+		retryingConfigWatchers:  make(map[string]struct{}),
+		serviceCache:            make(map[string]interface{}),
+		configCache:             make(map[string]interface{}),
 	}
 }
 
@@ -398,6 +405,9 @@ func (p *PlugPolaris) recordServiceChangeAudit(serviceName string, instances []m
 
 	// Collect instance information (with data masking)
 	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
 		instanceInfo := map[string]interface{}{
 			"id":       instance.GetId(),
 			"host":     instance.GetHost(),
@@ -414,6 +424,9 @@ func (p *PlugPolaris) recordServiceChangeAudit(serviceName string, instances []m
 
 // recordServiceWatchErrorAudit records service watch error audit logs
 func (p *PlugPolaris) recordServiceWatchErrorAudit(serviceName string, err error) {
+	if p.conf == nil {
+		return
+	}
 	auditInfo := map[string]interface{}{
 		"service_name": serviceName,
 		"namespace":    p.conf.Namespace,
@@ -431,6 +444,9 @@ func (p *PlugPolaris) recordServiceWatchErrorAudit(serviceName string, err error
 
 // sendServiceWatchAlert sends service watch alerts
 func (p *PlugPolaris) sendServiceWatchAlert(serviceName string, err error) {
+	if p.conf == nil {
+		return
+	}
 	// Implement alert notification logic
 	alertInfo := map[string]interface{}{
 		"alert_type":   "service_watch_error",
@@ -502,6 +518,9 @@ func (p *PlugPolaris) sendSMSAlert(alertInfo map[string]interface{}) {
 
 // recordConfigChangeAudit records configuration change audit logs
 func (p *PlugPolaris) recordConfigChangeAudit(fileName, group string, config model.ConfigFile) {
+	if p.conf == nil || config == nil {
+		return
+	}
 	auditInfo := map[string]interface{}{
 		"config_file":    fileName,
 		"group":          group,
@@ -516,6 +535,9 @@ func (p *PlugPolaris) recordConfigChangeAudit(fileName, group string, config mod
 
 // recordConfigWatchErrorAudit records configuration watch error audit logs
 func (p *PlugPolaris) recordConfigWatchErrorAudit(fileName, group string, err error) {
+	if p.conf == nil {
+		return
+	}
 	auditInfo := map[string]interface{}{
 		"config_file": fileName,
 		"group":       group,
@@ -534,6 +556,9 @@ func (p *PlugPolaris) recordConfigWatchErrorAudit(fileName, group string, err er
 
 // sendConfigWatchAlert sends configuration watch alerts
 func (p *PlugPolaris) sendConfigWatchAlert(fileName, group string, err error) {
+	if p.conf == nil {
+		return
+	}
 	alertInfo := map[string]interface{}{
 		"alert_type":  "config_watch_error",
 		"config_file": fileName,
@@ -549,9 +574,34 @@ func (p *PlugPolaris) sendConfigWatchAlert(fileName, group string, err error) {
 	log.Warnf("Config watch alert: %+v", alertInfo)
 }
 
+// tryStartConfigWatchRetry marks config as retrying and returns true if this goroutine should run the retry.
+// Returns false if a retry is already in progress for this config (deduplication).
+func (p *PlugPolaris) tryStartConfigWatchRetry(configKey string) bool {
+	p.retryMutex.Lock()
+	defer p.retryMutex.Unlock()
+	if p.retryingConfigWatchers == nil {
+		return false
+	}
+	if _, exists := p.retryingConfigWatchers[configKey]; exists {
+		return false
+	}
+	p.retryingConfigWatchers[configKey] = struct{}{}
+	return true
+}
+
+// finishConfigWatchRetry removes config from retrying set (call when retry completes).
+func (p *PlugPolaris) finishConfigWatchRetry(fileName, group string) {
+	configKey := fmt.Sprintf("%s:%s", fileName, group)
+	p.retryMutex.Lock()
+	defer p.retryMutex.Unlock()
+	if p.retryingConfigWatchers != nil {
+		delete(p.retryingConfigWatchers, configKey)
+	}
+}
+
 // retryConfigWatch retries configuration watching
 func (p *PlugPolaris) retryConfigWatch(fileName, group string) {
-	// Implement retry logic
+	defer p.finishConfigWatchRetry(fileName, group)
 	log.Infof("Retrying config watch for %s:%s", fileName, group)
 
 	// Wait for a period before retrying, but allow cancellation on plugin stop

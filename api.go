@@ -108,5 +108,8 @@ func GetPlugin() *PlugPolaris {
 	if pl == nil {
 		return nil
 	}
-	return pl.(*PlugPolaris)
+	if pp, ok := pl.(*PlugPolaris); ok {
+		return pp
+	}
+	return nil
 }

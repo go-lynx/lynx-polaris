@@ -133,6 +133,9 @@ func (sw *ServiceWatcher) watchLoop() {
 
 // checkInstances checks instance changes
 func (sw *ServiceWatcher) checkInstances() {
+	if sw.consumer == nil {
+		return
+	}
 	req := &api.GetInstancesRequest{
 		GetInstancesRequest: model.GetInstancesRequest{
 			Service:   sw.serviceName,
@@ -177,12 +180,18 @@ func (sw *ServiceWatcher) hasInstancesChanged(newInstances []model.Instance) boo
 	// If instance count is the same, perform detailed comparison
 	lastInstancesMap := make(map[string]model.Instance)
 	for _, instance := range sw.lastInstances {
+		if instance == nil {
+			continue
+		}
 		key := instance.GetId()
 		lastInstancesMap[key] = instance
 	}
 
 	// Check each new instance
 	for _, newInstance := range newInstances {
+		if newInstance == nil {
+			continue
+		}
 		key := newInstance.GetId()
 		lastInstance, exists := lastInstancesMap[key]
 
@@ -367,6 +376,9 @@ func (cw *ConfigWatcher) watchLoop() {
 
 // checkConfig checks configuration changes
 func (cw *ConfigWatcher) checkConfig() {
+	if cw.configAPI == nil {
+		return
+	}
 	// Record configuration check operation metrics
 	if cw.metrics != nil {
 		cw.metrics.RecordConfigOperation("check", cw.fileName, cw.group, "start")
@@ -483,6 +495,9 @@ func (cw *ConfigWatcher) IsRunning() bool {
 
 // compareInstance compares if two instances are the same
 func (sw *ServiceWatcher) compareInstance(instance1, instance2 model.Instance) bool {
+	if instance1 == nil || instance2 == nil {
+		return instance1 == instance2
+	}
 	// Compare basic information
 	if instance1.GetId() != instance2.GetId() ||
 		instance1.GetHost() != instance2.GetHost() ||
