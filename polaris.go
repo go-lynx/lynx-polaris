@@ -23,7 +23,7 @@ const (
 	pluginName = "polaris.control.plane"
 
 	// pluginVersion represents the current version of the Polaris control plane plugin.
-	pluginVersion = "v1.5.4"
+	pluginVersion = "v1.5.5"
 
 	// pluginDescription briefly describes the functionality of the Polaris control plane plugin.
 	pluginDescription = "polaris control plane plugin for lynx framework"
