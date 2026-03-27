@@ -127,7 +127,7 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 		}
 		// Record instance information
 		instanceInfo := map[string]interface{}{
-			"service":       lynx.GetName(),
+			"service":       currentLynxName(),
 			"namespace":     namespace,
 			"instance_type": fmt.Sprintf("%T", p.polaris),
 		}
@@ -141,7 +141,7 @@ func (p *PlugPolaris) destroyPolarisInstance() {
 
 		// 3. Record destruction statistics
 		destroyStats := map[string]interface{}{
-			"service_name":  lynx.GetName(),
+			"service_name":  currentLynxName(),
 			"namespace":     namespace,
 			"destroy_time":  time.Now().Unix(),
 			"instance_info": instanceInfo,

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
-	"github.com/go-lynx/lynx"
 	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/go-lynx/lynx/log"
 	"github.com/go-lynx/lynx/plugins"
@@ -37,6 +36,7 @@ type PlugPolaris struct {
 	*plugins.BasePlugin
 	polaris *polaris.Polaris
 	conf    *conf.Polaris
+	rt      plugins.Runtime
 
 	// SDK components
 	sdk api.SDKContext
@@ -113,6 +113,7 @@ func NewPolarisControlPlane() *PlugPolaris {
 // InitializeResources implements custom initialization logic for the Polaris plugin.
 // This function loads and validates Polaris configuration, using default configuration if none is provided.
 func (p *PlugPolaris) InitializeResources(rt plugins.Runtime) error {
+	p.rt = rt
 	// Initialize an empty configuration structure
 	p.conf = &conf.Polaris{}
 
@@ -270,14 +271,22 @@ func (p *PlugPolaris) StartupTasks() error {
 	// Create a new Polaris instance using the previously initialized SDK and configuration.
 	pol := polaris.New(
 		sdk,
-		polaris.WithService(lynx.GetName()),
+		polaris.WithService(currentLynxName()),
 		polaris.WithNamespace(p.conf.Namespace),
 	)
 	// Save the Polaris instance to p.polaris.
 	p.polaris = &pol
 
+	if err := p.publishRuntimeResources(); err != nil {
+		log.Errorf("Failed to publish Polaris runtime resources: %v", err)
+		if p.metrics != nil {
+			p.metrics.RecordSDKOperation("startup", "error")
+		}
+		return WrapInitError(err, "failed to publish runtime resources")
+	}
+
 	// Set the Polaris control plane as the Lynx application's control plane.
-	err = lynx.Lynx().SetControlPlane(p)
+	err = currentLynxApp().SetControlPlane(p)
 	if err != nil {
 		log.Errorf("Failed to set control plane: %v", err)
 		if p.metrics != nil {
@@ -287,7 +296,7 @@ func (p *PlugPolaris) StartupTasks() error {
 	}
 
 	// Get the Lynx application's control plane startup configuration.
-	cfg, err := lynx.Lynx().InitControlPlaneConfig()
+	cfg, err := currentLynxApp().InitControlPlaneConfig()
 	if err != nil {
 		log.Errorf("Failed to init control plane config: %v", err)
 		if p.metrics != nil {
@@ -297,10 +306,40 @@ func (p *PlugPolaris) StartupTasks() error {
 	}
 
 	// Load plugins from the plugin list.
-	lynx.Lynx().GetPluginManager().LoadPlugins(cfg)
+	currentLynxApp().GetPluginManager().LoadPlugins(cfg)
 
 	p.setInitialized()
 	log.Infof("Polaris plugin initialized successfully")
+	return nil
+}
+
+func (p *PlugPolaris) publishRuntimeResources() error {
+	if p.rt == nil {
+		return nil
+	}
+	if err := p.rt.RegisterSharedResource(pluginName, p); err != nil {
+		return err
+	}
+	if registrar := p.NewServiceRegistry(); registrar != nil {
+		if err := p.rt.RegisterSharedResource(pluginName+".service_registry", registrar); err != nil {
+			log.Warnf("failed to register polaris service registry resource: %v", err)
+		}
+	}
+	if discovery := p.NewServiceDiscovery(); discovery != nil {
+		if err := p.rt.RegisterSharedResource(pluginName+".service_discovery", discovery); err != nil {
+			log.Warnf("failed to register polaris service discovery resource: %v", err)
+		}
+	}
+	if p.sdk != nil {
+		if err := p.rt.RegisterPrivateResource("sdk", p.sdk); err != nil {
+			log.Warnf("failed to register polaris private sdk resource: %v", err)
+		}
+	}
+	if p.polaris != nil {
+		if err := p.rt.RegisterPrivateResource("client", p.polaris); err != nil {
+			log.Warnf("failed to register polaris private client resource: %v", err)
+		}
+	}
 	return nil
 }
 

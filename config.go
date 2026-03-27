@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
 	"github.com/go-kratos/kratos/v2/config"
-	"github.com/go-lynx/lynx"
 	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/api"
@@ -70,7 +69,7 @@ func (p *PlugPolaris) GetConfigSources() ([]config.Source, error) {
 func (p *PlugPolaris) getMainConfigSource() (config.Source, error) {
 	if p.conf.ServiceConfig == nil {
 		// Fallback to default behavior if service_config is not configured
-		appName := lynx.GetName()
+		appName := currentLynxName()
 		if appName == "" {
 			appName = "application"
 		}
@@ -90,7 +89,7 @@ func (p *PlugPolaris) getMainConfigSource() (config.Source, error) {
 	// Determine filename
 	filename := serviceConfig.Filename
 	if filename == "" {
-		appName := lynx.GetName()
+		appName := currentLynxName()
 		if appName == "" {
 			appName = "application"
 		}
@@ -100,7 +99,7 @@ func (p *PlugPolaris) getMainConfigSource() (config.Source, error) {
 	// Determine group
 	group := serviceConfig.Group
 	if group == "" {
-		group = lynx.GetName()
+		group = currentLynxName()
 		if group == "" {
 			group = "DEFAULT_GROUP"
 		}

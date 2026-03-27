@@ -3,7 +3,6 @@ package polaris
 import (
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
 	"github.com/go-kratos/kratos/v2/middleware"
-	"github.com/go-lynx/lynx"
 	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/model"
@@ -27,7 +26,7 @@ func (p *PlugPolaris) HTTPRateLimit() middleware.Middleware {
 	log.Infof("Synchronizing [HTTP] rate limit policy")
 
 	return polaris.Ratelimit(p.polaris.Limiter(
-		polaris.WithLimiterService(lynx.GetName()),
+		polaris.WithLimiterService(currentLynxName()),
 		polaris.WithLimiterNamespace(p.conf.Namespace),
 	))
 }
@@ -47,7 +46,7 @@ func (p *PlugPolaris) GRPCRateLimit() middleware.Middleware {
 	log.Infof("Synchronizing [GRPC] rate limit policy")
 
 	return polaris.Ratelimit(p.polaris.Limiter(
-		polaris.WithLimiterService(lynx.GetName()),
+		polaris.WithLimiterService(currentLynxName()),
 		polaris.WithLimiterNamespace(p.conf.Namespace),
 	))
 }
