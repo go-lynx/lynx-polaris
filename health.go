@@ -1,6 +1,7 @@
 package polaris
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -11,6 +12,13 @@ import (
 
 // CheckHealth performs a health check.
 func (p *PlugPolaris) CheckHealth() error {
+	return p.checkHealthContext(context.Background())
+}
+
+func (p *PlugPolaris) checkHealthContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := p.checkInitialized(); err != nil {
 		return err
 	}
@@ -26,11 +34,11 @@ func (p *PlugPolaris) CheckHealth() error {
 	}
 
 	// Perform actual health check of the Polaris control plane
-	return p.checkPolarisControlPlaneHealth()
+	return p.checkPolarisControlPlaneHealthContext(ctx)
 }
 
 // checkPolarisControlPlaneHealth checks the health of the Polaris control plane.
-func (p *PlugPolaris) checkPolarisControlPlaneHealth() error {
+func (p *PlugPolaris) checkPolarisControlPlaneHealthContext(ctx context.Context) error {
 	// Record the start of the health check
 	if p.metrics != nil {
 		p.metrics.RecordHealthCheck("polaris", "start")
@@ -46,7 +54,10 @@ func (p *PlugPolaris) checkPolarisControlPlaneHealth() error {
 	// Execute health checks using circuit breaker and retry mechanisms
 	var healthErr error
 	err := p.circuitBreaker.Do(func() error {
-		return p.retryManager.DoWithRetry(func() error {
+		return p.retryManager.DoWithRetryContext(ctx, func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			// 1) Check SDK connection status
 			if err := p.checkSDKConnection(); err != nil {
 				healthErr = err

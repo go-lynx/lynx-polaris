@@ -52,21 +52,51 @@ lynx:
 
 ### Configuration Options
 
-- `namespace`: Polaris namespace (default: "default")
-- `token`: Polaris authentication token
-- `weight`: Service weight for load balancing (default: 100)
-- `ttl`: Service TTL in seconds (default: 30)
-- `timeout`: Request timeout duration (default: 10s)
-- `service_config`: Configuration for remote service configuration loading
-  - `group`: Configuration group name (optional, defaults to application name)
-  - `filename`: Configuration file name (optional, defaults to application name with .yaml extension)
-  - `namespace`: Namespace for the configuration (optional, uses main polaris namespace)
-  - `additional_configs`: List of additional configuration files to load
-    - `group`: Configuration group name
-    - `filename`: Configuration file name
-    - `namespace`: Namespace for this specific configuration (optional, uses service_config namespace)
-    - `priority`: Merge priority (higher number = higher priority, default: 0)
-    - `merge_strategy`: How to handle conflicts ("override", "merge", "append", default: "override")
+#### Basic Options
+- `namespace` (string, default: `"default"`): Polaris namespace. Example: `"default"`
+- `token` (string, required): Polaris authentication token. Example: `"your-polaris-token"`
+- `weight` (int32, default: `100`): Service weight for load balancing. Example: `100`
+- `ttl` (int32, default: `30`): Service instance TTL in seconds. Example: `30`
+- `timeout` (duration, default: `"10s"`): Request timeout duration. Example: `"10s"`
+- `config_path` (string, optional): Path to the Polaris SDK configuration file. Example: `"./polaris.yaml"`
+
+#### Health Check & Monitoring
+- `enable_health_check` (bool, default: `true`): Whether to enable health check.
+- `health_check_interval` (duration, default: `"5s"`): Health check interval.
+- `enable_metrics` (bool, default: `true`): Whether to enable monitoring metrics.
+
+#### Resilience & Governance
+- `enable_retry` (bool, default: `true`): Whether to enable retry mechanism.
+- `max_retry_times` (int32, default: `3`): Maximum number of retries.
+- `retry_interval` (duration, default: `"1s"`): Retry interval time.
+- `enable_circuit_breaker` (bool, default: `true`): Whether to enable circuit breaker.
+- `circuit_breaker_threshold` (float, default: `0.5`): Circuit breaker threshold.
+- `enable_service_watch` (bool, default: `true`): Whether to enable service instance watching.
+- `enable_config_watch` (bool, default: `true`): Whether to enable configuration change watching.
+- `load_balancer_type` (string, default: `"weighted_random"`): Load balancer type (`weighted_random`, `ring_hash`, `maglev`, `l5cst`).
+- `enable_route_rule` (bool, default: `true`): Whether to enable dynamic routing rules.
+- `enable_rate_limit` (bool, default: `true`): Whether to enable rate limiting.
+- `rate_limit_type` (string, default: `"local"`): Rate limiting type (`local`, `global`).
+
+#### Lifecycle & Logging
+- `enable_graceful_shutdown` (bool, default: `true`): Whether to enable graceful shutdown (unregisters service).
+- `shutdown_timeout` (duration, default: `"30s"`): Graceful shutdown timeout.
+- `enable_logging` (bool, default: `true`): Whether to enable detailed logging.
+- `log_level` (string, default: `"info"`): Log level (debug, info, warn, error).
+
+#### Service Configuration
+Configuration for remote service configuration loading.
+- `service_config.group` (string, optional): Main configuration group name in Polaris.
+- `service_config.filename` (string, optional): Main configuration file name.
+- `service_config.namespace` (string, optional): Namespace for the configuration.
+- `service_config.additional_configs` (repeated ConfigFile, optional): List of additional configuration files.
+
+#### ConfigFile Settings (for `additional_configs`)
+- `group` (string, required): Configuration group name.
+- `filename` (string, required): Configuration file name.
+- `namespace` (string, optional): Namespace for this file (defaults to `service_config.namespace`).
+- `priority` (int32, default: `0`): Merge priority (higher number = higher priority).
+- `merge_strategy` (string, default: `"override"`): Conflict resolution (`override`, `merge`, `append`).
 
 ## Usage
 

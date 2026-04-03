@@ -1,6 +1,7 @@
 package polaris
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync"
@@ -51,6 +52,8 @@ type PlugPolaris struct {
 	initialized   int32 // Use int32 instead of bool to support atomic operations
 	destroyed     int32 // Use int32 instead of bool to support atomic operations
 	healthCheckCh chan struct{}
+	lifecycleCtx  context.Context
+	lifecycleStop context.CancelFunc
 
 	// Service information
 	serviceInfo *ServiceInfo
@@ -235,82 +238,7 @@ func (p *PlugPolaris) setDestroyed() {
 // StartupTasks implements custom startup logic for the Polaris plugin.
 // This function configures and starts the Polaris control plane, adding necessary middleware and configuration options.
 func (p *PlugPolaris) StartupTasks() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if atomic.LoadInt32(&p.initialized) == 1 {
-		return NewInitError("Polaris plugin already initialized")
-	}
-
-	// Record startup operation metrics
-	if p.metrics != nil {
-		p.metrics.RecordSDKOperation("startup", "start")
-		defer func() {
-			if p.metrics != nil {
-				p.metrics.RecordSDKOperation("startup", "success")
-			}
-		}()
-	}
-
-	// Use Lynx application Helper to log Polaris plugin initialization information.
-	log.Infof("Initializing polaris plugin with namespace: %s", p.conf.Namespace)
-
-	// Load Polaris SDK configuration and initialize
-	sdk, err := p.loadPolarisConfiguration()
-	if err != nil {
-		log.Errorf("Failed to initialize Polaris SDK: %v", err)
-		if p.metrics != nil {
-			p.metrics.RecordSDKOperation("startup", "error")
-		}
-		return WrapInitError(err, "failed to initialize Polaris SDK")
-	}
-
-	// Save SDK instance
-	p.sdk = sdk
-
-	// Create a new Polaris instance using the previously initialized SDK and configuration.
-	pol := polaris.New(
-		sdk,
-		polaris.WithService(currentLynxName()),
-		polaris.WithNamespace(p.conf.Namespace),
-	)
-	// Save the Polaris instance to p.polaris.
-	p.polaris = &pol
-
-	if err := p.publishRuntimeResources(); err != nil {
-		log.Errorf("Failed to publish Polaris runtime resources: %v", err)
-		if p.metrics != nil {
-			p.metrics.RecordSDKOperation("startup", "error")
-		}
-		return WrapInitError(err, "failed to publish runtime resources")
-	}
-
-	// Set the Polaris control plane as the Lynx application's control plane.
-	err = currentLynxApp().SetControlPlane(p)
-	if err != nil {
-		log.Errorf("Failed to set control plane: %v", err)
-		if p.metrics != nil {
-			p.metrics.RecordSDKOperation("startup", "error")
-		}
-		return WrapInitError(err, "failed to set control plane")
-	}
-
-	// Get the Lynx application's control plane startup configuration.
-	cfg, err := currentLynxApp().InitControlPlaneConfig()
-	if err != nil {
-		log.Errorf("Failed to init control plane config: %v", err)
-		if p.metrics != nil {
-			p.metrics.RecordSDKOperation("startup", "error")
-		}
-		return WrapInitError(err, "failed to init control plane config")
-	}
-
-	// Load plugins from the plugin list.
-	currentLynxApp().GetPluginManager().LoadPlugins(cfg)
-
-	p.setInitialized()
-	log.Infof("Polaris plugin initialized successfully")
-	return nil
+	return p.startupTasksContext(context.Background())
 }
 
 func (p *PlugPolaris) publishRuntimeResources() error {
@@ -408,7 +336,7 @@ func (p *PlugPolaris) WatchConfig(fileName, group string) (*ConfigWatcher, error
 	}
 
 	// Create configuration watcher and connect to SDK
-	watcher := NewConfigWatcher(configAPI, fileName, group, p.conf.Namespace)
+	watcher := NewConfigWatcherWithContext(p.watcherContext(), configAPI, fileName, group, p.conf.Namespace)
 	watcher.metrics = p.metrics // Pass metrics reference
 
 	// Set event handling callbacks
@@ -643,20 +571,9 @@ func (p *PlugPolaris) retryConfigWatch(fileName, group string) {
 	defer p.finishConfigWatchRetry(fileName, group)
 	log.Infof("Retrying config watch for %s:%s", fileName, group)
 
-	// Wait for a period before retrying, but allow cancellation on plugin stop
-	if p.healthCheckCh != nil {
-		select {
-		case <-p.healthCheckCh:
-			log.Infof("Config watch retry canceled due to plugin shutdown: %s:%s", fileName, group)
-			return
-		case <-time.After(5 * time.Second):
-		}
-	} else {
-		// Fallback when channel is not available
-		if p.IsDestroyed() {
-			return
-		}
-		time.Sleep(5 * time.Second)
+	if p.waitForRetryDelay(5 * time.Second) {
+		log.Infof("Config watch retry canceled due to plugin shutdown: %s:%s", fileName, group)
+		return
 	}
 
 	if p.IsDestroyed() {

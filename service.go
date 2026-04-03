@@ -107,7 +107,7 @@ func (p *PlugPolaris) WatchService(serviceName string) (*ServiceWatcher, error) 
 	}
 
 	// Create service watcher and connect to SDK
-	watcher := NewServiceWatcher(consumerAPI, serviceName, p.conf.Namespace)
+	watcher := NewServiceWatcherWithContext(p.watcherContext(), consumerAPI, serviceName, p.conf.Namespace)
 
 	// Second check (write lock) - double-checked locking pattern
 	p.watcherMutex.Lock()
@@ -203,19 +203,9 @@ func (p *PlugPolaris) retryServiceWatch(serviceName string) {
 	defer p.finishServiceWatchRetry(serviceName)
 	log.Infof("Retrying service watch for %s", serviceName)
 
-	// Wait for a while before retrying, but allow cancellation on plugin stop
-	if p.healthCheckCh != nil {
-		select {
-		case <-p.healthCheckCh:
-			log.Infof("Service watch retry canceled due to plugin shutdown: %s", serviceName)
-			return
-		case <-time.After(5 * time.Second):
-		}
-	} else {
-		if p.IsDestroyed() {
-			return
-		}
-		time.Sleep(5 * time.Second)
+	if p.waitForRetryDelay(5 * time.Second) {
+		log.Infof("Service watch retry canceled due to plugin shutdown: %s", serviceName)
+		return
 	}
 
 	if p.IsDestroyed() {

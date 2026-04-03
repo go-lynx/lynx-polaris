@@ -43,7 +43,15 @@ type ServiceWatcher struct {
 
 // NewServiceWatcher creates new service watcher
 func NewServiceWatcher(consumer api.ConsumerAPI, serviceName, namespace string) *ServiceWatcher {
-	ctx, cancel := context.WithCancel(context.Background())
+	return NewServiceWatcherWithContext(context.Background(), consumer, serviceName, namespace)
+}
+
+// NewServiceWatcherWithContext creates a service watcher bound to a parent lifecycle context.
+func NewServiceWatcherWithContext(parent context.Context, consumer api.ConsumerAPI, serviceName, namespace string) *ServiceWatcher {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	return &ServiceWatcher{
 		consumer:    consumer,
 		serviceName: serviceName,
@@ -95,9 +103,8 @@ func (sw *ServiceWatcher) Start() {
 // Stop stops monitoring
 func (sw *ServiceWatcher) Stop() {
 	sw.mu.Lock()
-	defer sw.mu.Unlock()
-
 	if !sw.isRunning {
+		sw.mu.Unlock()
 		return
 	}
 
@@ -108,6 +115,7 @@ func (sw *ServiceWatcher) Stop() {
 
 	sw.cancel()
 	sw.isRunning = false
+	sw.mu.Unlock()
 
 	// Wait for goroutine to completely exit
 	sw.wg.Wait()
@@ -151,8 +159,7 @@ func (sw *ServiceWatcher) checkInstances() {
 	}
 
 	// Check if instances have changed
-	if sw.hasInstancesChanged(resp.Instances) {
-		sw.lastInstances = resp.Instances
+	if sw.updateInstances(resp.Instances) {
 		sw.notifyInstancesChanged(resp.Instances)
 
 		log.Infof("Service %s instances changed: %d instances",
@@ -161,7 +168,7 @@ func (sw *ServiceWatcher) checkInstances() {
 }
 
 // hasInstancesChanged checks if instances have changed
-func (sw *ServiceWatcher) hasInstancesChanged(newInstances []model.Instance) bool {
+func (sw *ServiceWatcher) hasInstancesChangedLocked(newInstances []model.Instance) bool {
 	// If instance count is different, consider it changed
 	if len(sw.lastInstances) != len(newInstances) {
 		return true
@@ -218,6 +225,16 @@ func (sw *ServiceWatcher) hasInstancesChanged(newInstances []model.Instance) boo
 	return false
 }
 
+func (sw *ServiceWatcher) updateInstances(newInstances []model.Instance) bool {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if !sw.hasInstancesChangedLocked(newInstances) {
+		return false
+	}
+	sw.lastInstances = append([]model.Instance(nil), newInstances...)
+	return true
+}
+
 // notifyInstancesChanged notifies instance changes
 func (sw *ServiceWatcher) notifyInstancesChanged(instances []model.Instance) {
 	// Record instance change metrics
@@ -226,20 +243,22 @@ func (sw *ServiceWatcher) notifyInstancesChanged(instances []model.Instance) {
 	}
 
 	sw.mu.RLock()
-	defer sw.mu.RUnlock()
+	callback := sw.onInstancesChanged
+	sw.mu.RUnlock()
 
-	if sw.onInstancesChanged != nil {
-		sw.onInstancesChanged(instances)
+	if callback != nil {
+		callback(instances)
 	}
 }
 
 // notifyError notifies error
 func (sw *ServiceWatcher) notifyError(err error) {
 	sw.mu.RLock()
-	defer sw.mu.RUnlock()
+	callback := sw.onError
+	sw.mu.RUnlock()
 
-	if sw.onError != nil {
-		sw.onError(err)
+	if callback != nil {
+		callback(err)
 	}
 }
 
@@ -285,7 +304,15 @@ type ConfigWatcher struct {
 
 // NewConfigWatcher creates new configuration watcher
 func NewConfigWatcher(configAPI api.ConfigFileAPI, fileName, group, namespace string) *ConfigWatcher {
-	ctx, cancel := context.WithCancel(context.Background())
+	return NewConfigWatcherWithContext(context.Background(), configAPI, fileName, group, namespace)
+}
+
+// NewConfigWatcherWithContext creates a config watcher bound to a parent lifecycle context.
+func NewConfigWatcherWithContext(parent context.Context, configAPI api.ConfigFileAPI, fileName, group, namespace string) *ConfigWatcher {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	return &ConfigWatcher{
 		configAPI: configAPI,
 		fileName:  fileName,
@@ -338,9 +365,8 @@ func (cw *ConfigWatcher) Start() {
 // Stop stops monitoring
 func (cw *ConfigWatcher) Stop() {
 	cw.mu.Lock()
-	defer cw.mu.Unlock()
-
 	if !cw.isRunning {
+		cw.mu.Unlock()
 		return
 	}
 
@@ -351,6 +377,7 @@ func (cw *ConfigWatcher) Stop() {
 
 	cw.cancel()
 	cw.isRunning = false
+	cw.mu.Unlock()
 
 	// Wait for goroutine to completely exit
 	cw.wg.Wait()
@@ -400,8 +427,7 @@ func (cw *ConfigWatcher) checkConfig() {
 	}
 
 	// Check if configuration has changed
-	if cw.hasConfigChanged(config) {
-		cw.lastConfig = config
+	if cw.updateConfig(config) {
 		cw.notifyConfigChanged(config)
 
 		log.Infof("Config %s:%s changed",
@@ -410,7 +436,7 @@ func (cw *ConfigWatcher) checkConfig() {
 }
 
 // hasConfigChanged checks if configuration has changed
-func (cw *ConfigWatcher) hasConfigChanged(newConfig model.ConfigFile) bool {
+func (cw *ConfigWatcher) hasConfigChangedLocked(newConfig model.ConfigFile) bool {
 	// If there was no configuration before, but now there is, consider it changed
 	if cw.lastConfig == nil && newConfig != nil {
 		return true
@@ -454,6 +480,16 @@ func (cw *ConfigWatcher) hasConfigChanged(newConfig model.ConfigFile) bool {
 	return false
 }
 
+func (cw *ConfigWatcher) updateConfig(newConfig model.ConfigFile) bool {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	if !cw.hasConfigChangedLocked(newConfig) {
+		return false
+	}
+	cw.lastConfig = newConfig
+	return true
+}
+
 // notifyConfigChanged notifies configuration changes
 func (cw *ConfigWatcher) notifyConfigChanged(config model.ConfigFile) {
 	// Record configuration change metrics
@@ -462,20 +498,22 @@ func (cw *ConfigWatcher) notifyConfigChanged(config model.ConfigFile) {
 	}
 
 	cw.mu.RLock()
-	defer cw.mu.RUnlock()
+	callback := cw.onConfigChanged
+	cw.mu.RUnlock()
 
-	if cw.onConfigChanged != nil {
-		cw.onConfigChanged(config)
+	if callback != nil {
+		callback(config)
 	}
 }
 
 // notifyError notifies error
 func (cw *ConfigWatcher) notifyError(err error) {
 	cw.mu.RLock()
-	defer cw.mu.RUnlock()
+	callback := cw.onError
+	cw.mu.RUnlock()
 
-	if cw.onError != nil {
-		cw.onError(err)
+	if callback != nil {
+		callback(err)
 	}
 }
 

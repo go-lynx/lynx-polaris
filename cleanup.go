@@ -1,10 +1,12 @@
 package polaris
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 	"time"
 
+	kratospolaris "github.com/go-kratos/kratos/contrib/polaris/v2"
 	"github.com/go-lynx/lynx"
 	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/go-lynx/lynx/log"
@@ -24,6 +26,8 @@ func (p *PlugPolaris) restoreControlPlane() {
 
 // stopHealthCheck stops health check
 func (p *PlugPolaris) stopHealthCheck() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.healthCheckCh != nil {
 		log.Infof("Stopping health check")
 		close(p.healthCheckCh)
@@ -41,115 +45,58 @@ func (p *PlugPolaris) cleanupWatchers() {
 	p.retryingConfigWatchers = make(map[string]struct{})
 	p.retryMutex.Unlock()
 
-	// Clean up service watchers
 	p.watcherMutex.Lock()
 	serviceWatcherCount := len(p.activeWatchers)
-	for serviceName, watcher := range p.activeWatchers {
+	serviceWatchers := p.activeWatchers
+	p.activeWatchers = make(map[string]*ServiceWatcher)
+	configWatcherCount := len(p.configWatchers)
+	configWatchers := p.configWatchers
+	p.configWatchers = make(map[string]*ConfigWatcher)
+	p.watcherMutex.Unlock()
+
+	for serviceName, watcher := range serviceWatchers {
 		log.Infof("Stopping service watcher for: %s", serviceName)
 		if watcher != nil {
 			watcher.Stop()
 		}
 	}
-	p.activeWatchers = make(map[string]*ServiceWatcher)
 
-	// Clean up configuration watchers
-	configWatcherCount := len(p.configWatchers)
-	for configKey, watcher := range p.configWatchers {
+	for configKey, watcher := range configWatchers {
 		log.Infof("Stopping config watcher for: %s", configKey)
 		if watcher != nil {
 			watcher.Stop()
 		}
 	}
-	p.configWatchers = make(map[string]*ConfigWatcher)
-	p.watcherMutex.Unlock()
 
 	log.Infof("Cleaned up %d service watchers and %d config watchers", serviceWatcherCount, configWatcherCount)
 }
 
 // closeSDKConnection closes SDK connection
 func (p *PlugPolaris) closeSDKConnection() {
-	if p.sdk != nil {
-		log.Infof("Closing SDK connection")
-
-		namespace := "unknown"
-		if p.conf != nil {
-			namespace = p.conf.Namespace
-		}
-		// Get SDK context information
-		sdkInfo := map[string]interface{}{
-			"sdk_type":  fmt.Sprintf("%T", p.sdk),
-			"namespace": namespace,
-		}
-
-		// Implement specific SDK shutdown logic
-		// 1. Get all active API clients
-		consumerAPI := api.NewConsumerAPIByContext(p.sdk)
-		providerAPI := api.NewProviderAPIByContext(p.sdk)
-		configAPI := api.NewConfigFileAPIBySDKContext(p.sdk)
-		limitAPI := api.NewLimitAPIByContext(p.sdk)
-
-		// 2. Close each API client
-		if consumerAPI != nil {
-			log.Infof("Closing consumer API")
-			consumerAPI.Destroy()
-		}
-
-		if providerAPI != nil {
-			log.Infof("Closing provider API")
-			providerAPI.Destroy()
-		}
-
-		// ConfigFileAPI and LimitAPI in polaris-go do not expose Destroy(); SDK context destroy below releases resources.
-		if configAPI != nil {
-			log.Infof("Closing config API")
-		}
-		if limitAPI != nil {
-			log.Infof("Closing limit API")
-		}
-
-		// 3. Close SDK context
-		log.Infof("Destroying SDK context")
-		p.sdk.Destroy()
-
-		log.Infof("SDK connection closed: %+v", sdkInfo)
-		p.sdk = nil
+	p.mu.Lock()
+	sdk := p.sdk
+	p.sdk = nil
+	namespace := "unknown"
+	if p.conf != nil {
+		namespace = p.conf.Namespace
 	}
+	p.mu.Unlock()
+
+	destroySDKResources(sdk, namespace)
 }
 
 // destroyPolarisInstance destroys Polaris instance
 func (p *PlugPolaris) destroyPolarisInstance() {
-	if p.polaris != nil {
-		log.Infof("Destroying Polaris instance")
-
-		namespace := "unknown"
-		if p.conf != nil {
-			namespace = p.conf.Namespace
-		}
-		// Record instance information
-		instanceInfo := map[string]interface{}{
-			"service":       currentLynxName(),
-			"namespace":     namespace,
-			"instance_type": fmt.Sprintf("%T", p.polaris),
-		}
-
-		// Implement specific Polaris instance destruction logic
-		// 1. Stop all services of Polaris instance (control plane already restored in CleanupTasks)
-		log.Infof("Stopping Polaris instance services")
-
-		// 2. Clean up instance-related resources
-		log.Infof("Cleaning up instance resources")
-
-		// 3. Record destruction statistics
-		destroyStats := map[string]interface{}{
-			"service_name":  currentLynxName(),
-			"namespace":     namespace,
-			"destroy_time":  time.Now().Unix(),
-			"instance_info": instanceInfo,
-		}
-
-		log.Infof("Polaris instance destroyed: %+v", destroyStats)
-		p.polaris = nil
+	p.mu.Lock()
+	polarisClient := p.polaris
+	p.polaris = nil
+	namespace := "unknown"
+	if p.conf != nil {
+		namespace = p.conf.Namespace
 	}
+	p.mu.Unlock()
+
+	destroyPolarisClient(polarisClient, namespace)
 }
 
 // releaseMemoryResources releases memory resources
@@ -262,24 +209,47 @@ func (p *PlugPolaris) getShutdownTimeoutDuration() time.Duration {
 	return conf.DefaultShutdownTimeout
 }
 
-// CleanupTasks runs cleanup with configurable shutdown timeout; only SDK/instance teardown is limited by timeout.
 func (p *PlugPolaris) CleanupTasks() error {
+	return p.cleanupTasksContext(context.Background())
+}
+
+func (p *PlugPolaris) cleanupTasksContext(parentCtx context.Context) error {
+	if err := parentCtx.Err(); err != nil {
+		return err
+	}
+
 	p.mu.Lock()
 	if !p.IsInitialized() || p.IsDestroyed() {
 		p.mu.Unlock()
 		return nil
 	}
 	p.setDestroyed()
-	if p.metrics != nil {
-		p.metrics.RecordSDKOperation("cleanup", "start")
-		defer func() {
-			if p.metrics != nil {
-				p.metrics.RecordSDKOperation("cleanup", "success")
-			}
-		}()
-	}
 	timeout := p.getShutdownTimeoutDuration()
+	metrics := p.metrics
+	if metrics != nil {
+		metrics.RecordSDKOperation("cleanup", "start")
+	}
+	if p.lifecycleStop != nil {
+		p.lifecycleStop()
+		p.lifecycleStop = nil
+	}
+	p.lifecycleCtx = nil
+	namespace := "unknown"
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	sdk := p.sdk
+	polarisClient := p.polaris
+	p.sdk = nil
+	p.polaris = nil
 	p.mu.Unlock()
+
+	defer func() {
+		if metrics == nil {
+			return
+		}
+		metrics.RecordSDKOperation("cleanup", "success")
+	}()
 
 	log.Infof("Destroying Polaris plugin (shutdown timeout: %v)", timeout)
 
@@ -287,28 +257,101 @@ func (p *PlugPolaris) CleanupTasks() error {
 	p.stopHealthCheck()
 	p.cleanupWatchers()
 
+	cleanupCtx, cancel := p.createCleanupContext(parentCtx, timeout)
+	defer cancel()
+
 	done := make(chan struct{})
 	go func() {
-		p.closeSDKConnection()
-		p.destroyPolarisInstance()
+		destroySDKResources(sdk, namespace)
+		destroyPolarisClient(polarisClient, namespace)
 		close(done)
 	}()
 
+	var teardownErr error
 	select {
 	case <-done:
-	case <-time.After(timeout):
+	case <-cleanupCtx.Done():
+		teardownErr = cleanupCtx.Err()
 		log.Warnf("Polaris SDK/instance teardown did not finish within %v", timeout)
+	}
+
+	if metrics != nil {
+		metrics.Unregister()
 	}
 
 	p.mu.Lock()
 	p.stopBackgroundTasks()
-	if p.metrics != nil {
-		p.metrics.Unregister()
-		p.metrics = nil
-	}
 	p.releaseMemoryResources()
+	atomic.StoreInt32(&p.initialized, 0)
 	p.mu.Unlock()
 
 	log.Infof("Polaris plugin destroyed successfully")
-	return nil
+	return teardownErr
+}
+
+func (p *PlugPolaris) createCleanupContext(parentCtx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if deadline, ok := parentCtx.Deadline(); ok && time.Until(deadline) < timeout {
+		return parentCtx, func() {}
+	}
+	return context.WithTimeout(parentCtx, timeout)
+}
+
+func destroySDKResources(sdk api.SDKContext, namespace string) {
+	if sdk == nil {
+		return
+	}
+
+	log.Infof("Closing SDK connection")
+	sdkInfo := map[string]interface{}{
+		"sdk_type":  fmt.Sprintf("%T", sdk),
+		"namespace": namespace,
+	}
+
+	consumerAPI := api.NewConsumerAPIByContext(sdk)
+	providerAPI := api.NewProviderAPIByContext(sdk)
+	configAPI := api.NewConfigFileAPIBySDKContext(sdk)
+	limitAPI := api.NewLimitAPIByContext(sdk)
+
+	if consumerAPI != nil {
+		log.Infof("Closing consumer API")
+		consumerAPI.Destroy()
+	}
+	if providerAPI != nil {
+		log.Infof("Closing provider API")
+		providerAPI.Destroy()
+	}
+	if configAPI != nil {
+		log.Infof("Closing config API")
+	}
+	if limitAPI != nil {
+		log.Infof("Closing limit API")
+	}
+
+	log.Infof("Destroying SDK context")
+	sdk.Destroy()
+	log.Infof("SDK connection closed: %+v", sdkInfo)
+}
+
+func destroyPolarisClient(polarisClient *kratospolaris.Polaris, namespace string) {
+	if polarisClient == nil {
+		return
+	}
+
+	log.Infof("Destroying Polaris instance")
+	instanceInfo := map[string]interface{}{
+		"service":       currentLynxName(),
+		"namespace":     namespace,
+		"instance_type": fmt.Sprintf("%T", polarisClient),
+	}
+
+	log.Infof("Stopping Polaris instance services")
+	log.Infof("Cleaning up instance resources")
+	destroyStats := map[string]interface{}{
+		"service_name":  currentLynxName(),
+		"namespace":     namespace,
+		"destroy_time":  time.Now().Unix(),
+		"instance_info": instanceInfo,
+	}
+
+	log.Infof("Polaris instance destroyed: %+v", destroyStats)
 }

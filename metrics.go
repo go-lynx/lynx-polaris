@@ -1,9 +1,14 @@
 package polaris
 
 import (
+	"errors"
+	"fmt"
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+var metricsRegistrationMu sync.Mutex
 
 // Metrics defines Polaris-related monitoring metrics
 type Metrics struct {
@@ -48,9 +53,12 @@ type Metrics struct {
 
 // NewPolarisMetrics creates new monitoring metrics instance
 func NewPolarisMetrics() *Metrics {
+	metricsRegistrationMu.Lock()
+	defer metricsRegistrationMu.Unlock()
+
 	return &Metrics{
 		// SDK operation metrics
-		sdkOperationsTotal: promauto.NewCounterVec(
+		sdkOperationsTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -59,7 +67,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"operation", "status"},
 		),
-		sdkOperationsDuration: promauto.NewHistogramVec(
+		sdkOperationsDuration: registerHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -69,7 +77,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"operation"},
 		),
-		sdkErrorsTotal: promauto.NewCounterVec(
+		sdkErrorsTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -80,7 +88,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Service discovery metrics
-		serviceDiscoveryTotal: promauto.NewCounterVec(
+		serviceDiscoveryTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -89,7 +97,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace", "status"},
 		),
-		serviceDiscoveryDuration: promauto.NewHistogramVec(
+		serviceDiscoveryDuration: registerHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -99,7 +107,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace"},
 		),
-		serviceInstancesTotal: promauto.NewGaugeVec(
+		serviceInstancesTotal: registerGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -110,7 +118,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Service registration metrics
-		serviceRegistrationTotal: promauto.NewCounterVec(
+		serviceRegistrationTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -119,7 +127,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace", "status"},
 		),
-		serviceRegistrationDuration: promauto.NewHistogramVec(
+		serviceRegistrationDuration: registerHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -129,7 +137,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace"},
 		),
-		serviceHeartbeatTotal: promauto.NewCounterVec(
+		serviceHeartbeatTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -140,7 +148,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Configuration management metrics
-		configOperationsTotal: promauto.NewCounterVec(
+		configOperationsTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -149,7 +157,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"operation", "file", "group", "status"},
 		),
-		configOperationsDuration: promauto.NewHistogramVec(
+		configOperationsDuration: registerHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -159,7 +167,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"operation", "file", "group"},
 		),
-		configChangesTotal: promauto.NewCounterVec(
+		configChangesTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -170,7 +178,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Routing metrics
-		routeOperationsTotal: promauto.NewCounterVec(
+		routeOperationsTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -179,7 +187,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace", "status"},
 		),
-		routeOperationsDuration: promauto.NewHistogramVec(
+		routeOperationsDuration: registerHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -191,7 +199,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Rate limiting metrics
-		rateLimitRequestsTotal: promauto.NewCounterVec(
+		rateLimitRequestsTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -200,7 +208,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace", "status"},
 		),
-		rateLimitRejectedTotal: promauto.NewCounterVec(
+		rateLimitRejectedTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -209,7 +217,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"service", "namespace"},
 		),
-		rateLimitQuotaUsed: promauto.NewGaugeVec(
+		rateLimitQuotaUsed: registerGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -220,7 +228,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Health check metrics
-		healthCheckTotal: promauto.NewCounterVec(
+		healthCheckTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -229,7 +237,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"component", "status"},
 		),
-		healthCheckDuration: promauto.NewHistogramVec(
+		healthCheckDuration: registerHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -239,7 +247,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"component"},
 		),
-		healthCheckFailed: promauto.NewCounterVec(
+		healthCheckFailed: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -250,7 +258,7 @@ func NewPolarisMetrics() *Metrics {
 		),
 
 		// Connection metrics
-		connectionTotal: promauto.NewGaugeVec(
+		connectionTotal: registerGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -259,7 +267,7 @@ func NewPolarisMetrics() *Metrics {
 			},
 			[]string{"type", "status"},
 		),
-		connectionErrorsTotal: promauto.NewCounterVec(
+		connectionErrorsTotal: registerCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lynx",
 				Subsystem: "polaris",
@@ -269,6 +277,54 @@ func NewPolarisMetrics() *Metrics {
 			[]string{"type", "error_type"},
 		),
 	}
+}
+
+func registerCounterVec(opts prometheus.CounterOpts, labelNames []string) *prometheus.CounterVec {
+	collector := prometheus.NewCounterVec(opts, labelNames)
+	if err := prometheus.DefaultRegisterer.Register(collector); err != nil {
+		var alreadyRegistered prometheus.AlreadyRegisteredError
+		if errors.As(err, &alreadyRegistered) {
+			existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.CounterVec)
+			if !ok {
+				panic(fmt.Sprintf("unexpected counter collector type for %s_%s_%s", opts.Namespace, opts.Subsystem, opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("failed to register counter collector %s_%s_%s: %v", opts.Namespace, opts.Subsystem, opts.Name, err))
+	}
+	return collector
+}
+
+func registerHistogramVec(opts prometheus.HistogramOpts, labelNames []string) *prometheus.HistogramVec {
+	collector := prometheus.NewHistogramVec(opts, labelNames)
+	if err := prometheus.DefaultRegisterer.Register(collector); err != nil {
+		var alreadyRegistered prometheus.AlreadyRegisteredError
+		if errors.As(err, &alreadyRegistered) {
+			existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.HistogramVec)
+			if !ok {
+				panic(fmt.Sprintf("unexpected histogram collector type for %s_%s_%s", opts.Namespace, opts.Subsystem, opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("failed to register histogram collector %s_%s_%s: %v", opts.Namespace, opts.Subsystem, opts.Name, err))
+	}
+	return collector
+}
+
+func registerGaugeVec(opts prometheus.GaugeOpts, labelNames []string) *prometheus.GaugeVec {
+	collector := prometheus.NewGaugeVec(opts, labelNames)
+	if err := prometheus.DefaultRegisterer.Register(collector); err != nil {
+		var alreadyRegistered prometheus.AlreadyRegisteredError
+		if errors.As(err, &alreadyRegistered) {
+			existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.GaugeVec)
+			if !ok {
+				panic(fmt.Sprintf("unexpected gauge collector type for %s_%s_%s", opts.Namespace, opts.Subsystem, opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("failed to register gauge collector %s_%s_%s: %v", opts.Namespace, opts.Subsystem, opts.Name, err))
+	}
+	return collector
 }
 
 // collectors returns all Prometheus collectors for unregister on plugin unload
