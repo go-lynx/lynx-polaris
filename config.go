@@ -1,10 +1,12 @@
 package polaris
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
 
+	"github.com/go-lynx/lynx"
 	"github.com/polarismesh/polaris-go/pkg/model"
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
@@ -63,6 +65,93 @@ func (p *PlugPolaris) GetConfigSources() ([]config.Source, error) {
 	sources = append(sources, additionalSources...)
 
 	return sources, nil
+}
+
+// GetConfigWatchTargets returns the Polaris config files that should feed the global config snapshot.
+func (p *PlugPolaris) GetConfigWatchTargets(appName string) ([]lynx.ControlPlaneConfigTarget, error) {
+	if err := p.checkInitialized(); err != nil {
+		return nil, err
+	}
+
+	mainFile := ""
+	mainGroup := ""
+	if p.conf.ServiceConfig == nil {
+		if appName == "" {
+			appName = currentLynxName()
+		}
+		if appName == "" {
+			appName = "application"
+		}
+		mainFile = fmt.Sprintf("%s.yaml", appName)
+		mainGroup = appName
+	} else {
+		mainFile = p.conf.ServiceConfig.Filename
+		if mainFile == "" {
+			if appName == "" {
+				appName = currentLynxName()
+			}
+			if appName == "" {
+				appName = "application"
+			}
+			mainFile = fmt.Sprintf("%s.yaml", appName)
+		}
+		mainGroup = p.conf.ServiceConfig.Group
+		if mainGroup == "" {
+			if appName == "" {
+				appName = currentLynxName()
+			}
+			if appName == "" {
+				mainGroup = "DEFAULT_GROUP"
+			} else {
+				mainGroup = appName
+			}
+		}
+	}
+
+	targets := []lynx.ControlPlaneConfigTarget{{
+		FileName: mainFile,
+		Group:    mainGroup,
+	}}
+	if p.conf.ServiceConfig == nil {
+		return targets, nil
+	}
+
+	for _, cfg := range p.conf.ServiceConfig.AdditionalConfigs {
+		if cfg == nil || cfg.Filename == "" {
+			continue
+		}
+		targets = append(targets, lynx.ControlPlaneConfigTarget{
+			FileName:      cfg.Filename,
+			Group:         cfg.Group,
+			Priority:      int(cfg.Priority),
+			MergeStrategy: cfg.MergeStrategy,
+		})
+	}
+
+	return targets, nil
+}
+
+// WatchControlPlaneConfig opens a running watcher for a Polaris-backed config target.
+func (p *PlugPolaris) WatchControlPlaneConfig(ctx context.Context, target lynx.ControlPlaneConfigTarget) (config.Watcher, error) {
+	source, err := p.GetConfig(target.FileName, target.Group)
+	if err != nil {
+		return nil, err
+	}
+	if source == nil {
+		return nil, fmt.Errorf("polaris config source is nil for %s/%s", target.Group, target.FileName)
+	}
+	if _, err := source.Load(); err != nil {
+		return nil, fmt.Errorf("failed to prime polaris config source %s/%s: %w", target.Group, target.FileName, err)
+	}
+	watcher, err := source.Watch()
+	if err != nil {
+		return nil, err
+	}
+	if err := lynx.StartControlPlaneWatcher(ctx, watcher); err != nil {
+		_ = watcher.Stop()
+		return nil, err
+	}
+	return watcher, nil
 }
 
 // getMainConfigSource gets the main configuration source based on service_config

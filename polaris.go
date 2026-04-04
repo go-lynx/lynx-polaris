@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/contrib/polaris/v2"
+	"github.com/go-lynx/lynx"
 	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/go-lynx/lynx/log"
 	"github.com/go-lynx/lynx/plugins"
@@ -230,6 +231,10 @@ func (p *PlugPolaris) setInitialized() {
 	atomic.StoreInt32(&p.initialized, 1)
 }
 
+func (p *PlugPolaris) clearInitialized() {
+	atomic.StoreInt32(&p.initialized, 0)
+}
+
 // setDestroyed atomically sets destruction status
 func (p *PlugPolaris) setDestroyed() {
 	atomic.StoreInt32(&p.destroyed, 1)
@@ -245,7 +250,7 @@ func (p *PlugPolaris) publishRuntimeResources() error {
 	if p.rt == nil {
 		return nil
 	}
-	if err := p.rt.RegisterSharedResource(pluginName, p); err != nil {
+	if err := lynx.RegisterControlPlaneCapabilityResources(p.rt, pluginName, p); err != nil {
 		return err
 	}
 	if registrar := p.NewServiceRegistry(); registrar != nil {
@@ -258,12 +263,23 @@ func (p *PlugPolaris) publishRuntimeResources() error {
 			log.Warnf("failed to register polaris service discovery resource: %v", err)
 		}
 	}
+	if router := p.NewNodeRouter(currentLynxName()); router != nil {
+		if err := p.rt.RegisterSharedResource(pluginName+".router", router); err != nil {
+			log.Warnf("failed to register polaris router resource: %v", err)
+		}
+	}
 	if p.sdk != nil {
+		if err := p.rt.RegisterPrivateResource("polaris_sdk", p.sdk); err != nil {
+			log.Warnf("failed to register polaris private sdk alias resource: %v", err)
+		}
 		if err := p.rt.RegisterPrivateResource("sdk", p.sdk); err != nil {
 			log.Warnf("failed to register polaris private sdk resource: %v", err)
 		}
 	}
 	if p.polaris != nil {
+		if err := p.rt.RegisterPrivateResource("polaris_client", p.polaris); err != nil {
+			log.Warnf("failed to register polaris private client alias resource: %v", err)
+		}
 		if err := p.rt.RegisterPrivateResource("client", p.polaris); err != nil {
 			log.Warnf("failed to register polaris private client resource: %v", err)
 		}
@@ -299,6 +315,18 @@ func (p *PlugPolaris) SetServiceInfo(info *ServiceInfo) {
 // GetServiceInfo gets service information
 func (p *PlugPolaris) GetServiceInfo() *ServiceInfo {
 	return p.serviceInfo
+}
+
+// ControlPlaneCapabilities declares Polaris' explicit control plane contract.
+func (p *PlugPolaris) ControlPlaneCapabilities() []lynx.ControlPlaneCapability {
+	return []lynx.ControlPlaneCapability{
+		lynx.ControlPlaneCapabilityConfig,
+		lynx.ControlPlaneCapabilityWatcher,
+		lynx.ControlPlaneCapabilityRegistry,
+		lynx.ControlPlaneCapabilityDiscovery,
+		lynx.ControlPlaneCapabilityRouter,
+		lynx.ControlPlaneCapabilityRateLimit,
+	}
 }
 
 // WatchConfig watches configuration changes

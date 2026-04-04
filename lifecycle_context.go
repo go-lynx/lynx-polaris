@@ -151,15 +151,14 @@ func (p *PlugPolaris) startupTasksContext(ctx context.Context) (startErr error) 
 	p.mu.Lock()
 	p.sdk = sdk
 	p.polaris = &pol
+	p.setInitialized()
 	p.mu.Unlock()
 
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("polaris startup canceled before publishing runtime resources: %w", err)
-	}
-	if err := p.publishRuntimeResources(); err != nil {
-		log.Errorf("Failed to publish Polaris runtime resources: %v", err)
-		return WrapInitError(err, "failed to publish runtime resources")
-	}
+	defer func() {
+		if startErr != nil {
+			p.clearInitialized()
+		}
+	}()
 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("polaris startup canceled before setting control plane: %w", err)
@@ -179,11 +178,21 @@ func (p *PlugPolaris) startupTasksContext(ctx context.Context) (startErr error) 
 	}
 
 	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("polaris startup canceled before publishing runtime resources: %w", err)
+	}
+	if err := p.publishRuntimeResources(); err != nil {
+		log.Errorf("Failed to publish Polaris runtime resources: %v", err)
+		return WrapInitError(err, "failed to publish runtime resources")
+	}
+
+	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("polaris startup canceled before loading dependent plugins: %w", err)
 	}
-	currentLynxApp().GetPluginManager().LoadPlugins(cfg)
+	if err := currentLynxApp().GetPluginManager().LoadPlugins(cfg); err != nil {
+		log.Errorf("Failed to load dependent plugins from Polaris control plane config: %v", err)
+		return WrapInitError(err, "failed to load dependent plugins")
+	}
 
-	p.setInitialized()
 	log.Infof("Polaris plugin initialized successfully")
 	return nil
 }
@@ -251,5 +260,6 @@ func (p *PlugPolaris) rollbackStartupState() {
 	}
 	p.lifecycleCtx = nil
 	p.lifecycleStop = nil
+	p.clearInitialized()
 	p.mu.Unlock()
 }
