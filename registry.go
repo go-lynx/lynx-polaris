@@ -3,6 +3,8 @@ package polaris
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,36 +62,32 @@ func parseEndpoints(endpoints []string) (host string, port int, protocol string)
 		return "localhost", 8080, "http"
 	}
 
-	endpoint := endpoints[0]
+	endpoint := strings.TrimSpace(endpoints[0])
+	if endpoint == "" {
+		return "localhost", 8080, "http"
+	}
+	protocol = "http"
 
-	if strings.HasPrefix(endpoint, "http://") {
-		protocol = "http"
-		endpoint = strings.TrimPrefix(endpoint, "http://")
-	} else if strings.HasPrefix(endpoint, "https://") {
-		protocol = "https"
-		endpoint = strings.TrimPrefix(endpoint, "https://")
-	} else if strings.HasPrefix(endpoint, "grpc://") {
-		protocol = "grpc"
-		endpoint = strings.TrimPrefix(endpoint, "grpc://")
-	} else {
-		protocol = "http"
+	if u, err := url.Parse(endpoint); err == nil && u.Scheme != "" {
+		protocol = u.Scheme
+		endpoint = u.Host
+		if endpoint == "" {
+			endpoint = u.Path
+		}
 	}
 
-	if strings.Contains(endpoint, ":") {
-		parts := strings.Split(endpoint, ":")
-		host = parts[0]
-		if len(parts) > 1 {
-			portStr := strings.Split(parts[1], "?")[0]
-			if p, err := strconv.Atoi(portStr); err == nil {
-				port = p
-			} else {
-				port = 8080
-			}
-		} else {
-			port = 8080
+	if h, p, err := net.SplitHostPort(endpoint); err == nil {
+		host = strings.Trim(h, "[]")
+		if parsedPort, err := strconv.Atoi(p); err == nil && parsedPort > 0 {
+			port = parsedPort
 		}
 	} else {
-		host = endpoint
+		host = strings.Trim(endpoint, "[]")
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	if port <= 0 {
 		port = 8080
 	}
 
@@ -119,9 +117,11 @@ func (r *PolarisRegistrar) Register(ctx context.Context, service *registry.Servi
 	if service == nil {
 		return fmt.Errorf("service instance is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 
 	host, port, protocol := parseEndpoints(service.Endpoints)
 
@@ -146,7 +146,9 @@ func (r *PolarisRegistrar) Register(ctx context.Context, service *registry.Servi
 	}
 
 	instanceKey := fmt.Sprintf("%s:%s:%d", service.Name, host, port)
-	r.instances[instanceKey] = service
+	r.mu.Lock()
+	r.instances[instanceKey] = cloneRegistryServiceInstance(service)
+	r.mu.Unlock()
 
 	log.Infof("Successfully registered service %s at %s:%d", service.Name, host, port)
 	return nil
@@ -157,9 +159,11 @@ func (r *PolarisRegistrar) Deregister(ctx context.Context, service *registry.Ser
 	if service == nil {
 		return fmt.Errorf("service instance is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 
 	host, port, _ := parseEndpoints(service.Endpoints)
 
@@ -178,7 +182,9 @@ func (r *PolarisRegistrar) Deregister(ctx context.Context, service *registry.Ser
 	}
 
 	instanceKey := fmt.Sprintf("%s:%s:%d", service.Name, host, port)
+	r.mu.Lock()
 	delete(r.instances, instanceKey)
+	r.mu.Unlock()
 
 	log.Infof("Successfully deregistered service %s at %s:%d", service.Name, host, port)
 	return nil
@@ -192,11 +198,26 @@ func (r *PolarisRegistrar) GetService(ctx context.Context, name string) ([]*regi
 	var instances []*registry.ServiceInstance
 	for _, instance := range r.instances {
 		if instance.Name == name {
-			instances = append(instances, instance)
+			instances = append(instances, cloneRegistryServiceInstance(instance))
 		}
 	}
 
 	return instances, nil
+}
+
+func cloneRegistryServiceInstance(instance *registry.ServiceInstance) *registry.ServiceInstance {
+	if instance == nil {
+		return nil
+	}
+	clone := *instance
+	clone.Endpoints = append([]string(nil), instance.Endpoints...)
+	if instance.Metadata != nil {
+		clone.Metadata = make(map[string]string, len(instance.Metadata))
+		for k, v := range instance.Metadata {
+			clone.Metadata[k] = v
+		}
+	}
+	return &clone
 }
 
 // Watch watches service changes (implements Discovery interface)

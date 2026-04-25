@@ -15,6 +15,7 @@ import (
 	"github.com/go-lynx/lynx/plugins"
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/model"
+	"google.golang.org/protobuf/proto"
 )
 
 // Plugin metadata
@@ -289,6 +290,8 @@ func (p *PlugPolaris) publishRuntimeResources() error {
 
 // GetMetrics gets monitoring metrics
 func (p *PlugPolaris) GetMetrics() *Metrics {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.metrics
 }
 
@@ -304,17 +307,40 @@ func (p *PlugPolaris) IsDestroyed() bool {
 
 // GetPolarisConfig gets Polaris configuration
 func (p *PlugPolaris) GetPolarisConfig() *conf.Polaris {
-	return p.conf
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.conf == nil {
+		return nil
+	}
+	return proto.Clone(p.conf).(*conf.Polaris)
 }
 
 // SetServiceInfo sets service information
 func (p *PlugPolaris) SetServiceInfo(info *ServiceInfo) {
-	p.serviceInfo = info
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.serviceInfo = cloneServiceInfo(info)
 }
 
 // GetServiceInfo gets service information
 func (p *PlugPolaris) GetServiceInfo() *ServiceInfo {
-	return p.serviceInfo
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return cloneServiceInfo(p.serviceInfo)
+}
+
+func cloneServiceInfo(info *ServiceInfo) *ServiceInfo {
+	if info == nil {
+		return nil
+	}
+	clone := *info
+	if info.Metadata != nil {
+		clone.Metadata = make(map[string]string, len(info.Metadata))
+		for k, v := range info.Metadata {
+			clone.Metadata[k] = v
+		}
+	}
+	return &clone
 }
 
 // ControlPlaneCapabilities declares Polaris' explicit control plane contract.

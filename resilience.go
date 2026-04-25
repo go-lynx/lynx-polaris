@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/go-lynx/lynx/log"
@@ -103,13 +104,14 @@ func (r *RetryManager) calculateBackoff(attempt int) time.Duration {
 // CircuitBreaker circuit breaker
 // Implements simple circuit breaker protection mechanism
 type CircuitBreaker struct {
-	threshold       float64
-	halfOpenTimeout time.Duration
-	failureCount    int
-	successCount    int
-	lastFailure     time.Time
-	state           CircuitState
-	mu              chan struct{} // Used as mutex lock
+	threshold        float64
+	halfOpenTimeout  time.Duration
+	failureCount     int
+	successCount     int
+	lastFailure      time.Time
+	state            CircuitState
+	halfOpenInFlight bool
+	mu               sync.Mutex
 }
 
 // CircuitState circuit breaker state
@@ -130,47 +132,57 @@ func NewCircuitBreaker(threshold float64, halfOpenTimeout time.Duration) *Circui
 		threshold:       threshold,
 		halfOpenTimeout: halfOpenTimeout,
 		state:           CircuitStateClosed,
-		mu:              make(chan struct{}, 1),
 	}
 }
 
 // Do executes operation with circuit breaker protection
 func (cb *CircuitBreaker) Do(operation func() error) error {
-	// Acquire lock
-	cb.mu <- struct{}{}
-	defer func() { <-cb.mu }()
+	if err := cb.beforeRequest(); err != nil {
+		return err
+	}
 
-	// Check circuit breaker state
+	err := operation()
+	cb.afterRequest(err)
+	return err
+}
+
+func (cb *CircuitBreaker) beforeRequest() error {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
 	switch cb.state {
 	case CircuitStateOpen:
-		// Check if should attempt recovery after halfOpenTimeout
 		if time.Since(cb.lastFailure) > cb.halfOpenTimeout {
 			cb.state = CircuitStateHalfOpen
+			cb.halfOpenInFlight = true
 			log.Infof("Circuit breaker transitioning to half-open state")
 		} else {
 			return fmt.Errorf("circuit breaker is open")
 		}
 	case CircuitStateHalfOpen:
-		// Half-open state, allow one attempt
+		if cb.halfOpenInFlight {
+			return fmt.Errorf("circuit breaker is half-open")
+		}
+		cb.halfOpenInFlight = true
 		log.Infof("Circuit breaker in half-open state, allowing one attempt")
 	case CircuitStateClosed:
-		// Closed state: allow normal operation
-		// No state change needed here
 	default:
 		return fmt.Errorf("invalid circuit breaker state: %v", cb.state)
 	}
+	return nil
+}
 
-	// Execute operation
-	err := operation()
-
-	// Update state
+func (cb *CircuitBreaker) afterRequest(err error) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cb.state == CircuitStateHalfOpen {
+		cb.halfOpenInFlight = false
+	}
 	if err != nil {
 		cb.recordFailure()
 	} else {
 		cb.recordSuccess()
 	}
-
-	return err
 }
 
 // recordFailure records failure
@@ -211,15 +223,15 @@ func (cb *CircuitBreaker) resetCounters() {
 
 // GetState gets circuit breaker state
 func (cb *CircuitBreaker) GetState() CircuitState {
-	cb.mu <- struct{}{}
-	defer func() { <-cb.mu }()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	return cb.state
 }
 
 // GetFailureRate gets failure rate
 func (cb *CircuitBreaker) GetFailureRate() float64 {
-	cb.mu <- struct{}{}
-	defer func() { <-cb.mu }()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
 	total := cb.failureCount + cb.successCount
 	if total == 0 {
@@ -230,17 +242,19 @@ func (cb *CircuitBreaker) GetFailureRate() float64 {
 
 // ForceOpen forces circuit breaker to open
 func (cb *CircuitBreaker) ForceOpen() {
-	cb.mu <- struct{}{}
-	defer func() { <-cb.mu }()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	cb.state = CircuitStateOpen
+	cb.halfOpenInFlight = false
 	log.Warnf("Circuit breaker forced open")
 }
 
 // ForceClose forces circuit breaker to close
 func (cb *CircuitBreaker) ForceClose() {
-	cb.mu <- struct{}{}
-	defer func() { <-cb.mu }()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	cb.state = CircuitStateClosed
+	cb.halfOpenInFlight = false
 	cb.resetCounters()
 	log.Infof("Circuit breaker forced closed")
 }

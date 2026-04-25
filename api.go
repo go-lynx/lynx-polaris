@@ -94,6 +94,8 @@ func GetPolaris() *polaris.Polaris {
 	if p == nil {
 		return nil
 	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.polaris
 }
 

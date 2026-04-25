@@ -247,7 +247,7 @@ func (sw *ServiceWatcher) notifyInstancesChanged(instances []model.Instance) {
 	sw.mu.RUnlock()
 
 	if callback != nil {
-		callback(instances)
+		callback(append([]model.Instance(nil), instances...))
 	}
 }
 
@@ -266,7 +266,7 @@ func (sw *ServiceWatcher) notifyError(err error) {
 func (sw *ServiceWatcher) GetLastInstances() []model.Instance {
 	sw.mu.RLock()
 	defer sw.mu.RUnlock()
-	return sw.lastInstances
+	return append([]model.Instance(nil), sw.lastInstances...)
 }
 
 // IsRunning checks if it's running

@@ -2,9 +2,12 @@ package polaris
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/go-kratos/kratos/v2/registry"
 	"github.com/go-lynx/lynx-polaris/conf"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/stretchr/testify/assert"
@@ -123,6 +126,39 @@ func TestCircuitBreaker_Functionality(t *testing.T) {
 	assert.Contains(t, err.Error(), "circuit breaker is open")
 }
 
+func TestCircuitBreaker_DoesNotSerializeClosedOperations(t *testing.T) {
+	circuitBreaker := NewCircuitBreaker(1.0, time.Second)
+	start := make(chan struct{})
+	var running int32
+	var maxRunning int32
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			err := circuitBreaker.Do(func() error {
+				current := atomic.AddInt32(&running, 1)
+				for {
+					observed := atomic.LoadInt32(&maxRunning)
+					if current <= observed || atomic.CompareAndSwapInt32(&maxRunning, observed, current) {
+						break
+					}
+				}
+				time.Sleep(20 * time.Millisecond)
+				atomic.AddInt32(&running, -1)
+				return nil
+			})
+			assert.NoError(t, err)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, int32(2), atomic.LoadInt32(&maxRunning))
+}
+
 // TestServiceWatcher_Functionality tests service watcher functionality
 func TestServiceWatcher_Functionality(t *testing.T) {
 	watcher := NewServiceWatcher(nil, "test-service", "test-namespace")
@@ -173,6 +209,17 @@ func TestConfigWatcher_Functionality(t *testing.T) {
 
 	watcher.Stop()
 	assert.False(t, watcher.IsRunning())
+}
+
+func TestServiceWatcherLastInstancesDefensiveCopy(t *testing.T) {
+	watcher := NewServiceWatcher(nil, "test-service", "test-namespace")
+	instances := []model.Instance{nil}
+	assert.True(t, watcher.updateInstances(instances))
+
+	got := watcher.GetLastInstances()
+	got[0] = nil
+	got = append(got, nil)
+	assert.Len(t, watcher.GetLastInstances(), 1)
 }
 
 // TestValidator_NilConfig tests validator with nil config
@@ -263,6 +310,58 @@ func TestPlugin_Integration(t *testing.T) {
 	_, err = plugin.CheckRateLimit("test-service", map[string]string{"user": "test"})
 	assert.Error(t, err) // Should return error because not initialized
 	assert.IsType(t, &PolarisError{}, err)
+}
+
+func TestServiceInfoDefensiveCopy(t *testing.T) {
+	plugin := NewPolarisControlPlane()
+	info := &ServiceInfo{
+		Service:  "svc",
+		Metadata: map[string]string{"env": "prod"},
+	}
+	plugin.SetServiceInfo(info)
+	info.Metadata["env"] = "mutated"
+
+	got := plugin.GetServiceInfo()
+	assert.Equal(t, "prod", got.Metadata["env"])
+	got.Metadata["env"] = "caller-mutated"
+	assert.Equal(t, "prod", plugin.GetServiceInfo().Metadata["env"])
+}
+
+func TestParseEndpoints(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		host     string
+		port     int
+		protocol string
+	}{
+		{name: "http", endpoint: "http://127.0.0.1:8081", host: "127.0.0.1", port: 8081, protocol: "http"},
+		{name: "grpc", endpoint: "grpc://service.local:9000", host: "service.local", port: 9000, protocol: "grpc"},
+		{name: "ipv6", endpoint: "http://[::1]:8082", host: "::1", port: 8082, protocol: "http"},
+		{name: "host-only", endpoint: "service.local", host: "service.local", port: 8080, protocol: "http"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port, protocol := parseEndpoints([]string{tt.endpoint})
+			assert.Equal(t, tt.host, host)
+			assert.Equal(t, tt.port, port)
+			assert.Equal(t, tt.protocol, protocol)
+		})
+	}
+}
+
+func TestCloneRegistryServiceInstance(t *testing.T) {
+	instance := &registry.ServiceInstance{
+		ID:        "id",
+		Name:      "svc",
+		Endpoints: []string{"http://localhost:8080"},
+		Metadata:  map[string]string{"env": "prod"},
+	}
+	clone := cloneRegistryServiceInstance(instance)
+	instance.Endpoints[0] = "http://mutated:8080"
+	instance.Metadata["env"] = "mutated"
+	assert.Equal(t, "http://localhost:8080", clone.Endpoints[0])
+	assert.Equal(t, "prod", clone.Metadata["env"])
 }
 
 // TestControlPlane_Interface tests control plane interface implementation

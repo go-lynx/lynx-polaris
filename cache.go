@@ -116,7 +116,7 @@ func (p *PlugPolaris) getServiceInstanceFromCache(serviceName string) ([]model.I
 		if data, ok := cacheData.(map[string]interface{}); ok {
 			if instances, ok := data["instances"].([]model.Instance); ok {
 				log.Infof("Found %d cached instances for service %s", len(instances), serviceName)
-				return instances, true
+				return append([]model.Instance(nil), instances...), true
 			}
 		}
 	}

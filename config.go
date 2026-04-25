@@ -27,7 +27,9 @@ func (p *PlugPolaris) GetConfig(fileName string, group string) (config.Source, e
 	if p.IsDestroyed() {
 		return nil, NewInitError("Polaris plugin has been destroyed")
 	}
-	pol := GetPolaris()
+	p.mu.RLock()
+	pol := p.polaris
+	p.mu.RUnlock()
 	if pol == nil {
 		return nil, nil
 	}
