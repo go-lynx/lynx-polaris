@@ -4,7 +4,7 @@ lynx:
   polaris:
     # Basic Configuration
     namespace: "default"                    # Namespace
-    token: "your-polaris-token"            # Authentication token (optional)
+    token: ""                             # Inject through environment-specific config when required
     weight: 100                            # Service weight (0-1000)
     ttl: 30                                # Service TTL (seconds)
     timeout: "10s"                         # Operation timeout
