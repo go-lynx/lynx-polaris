@@ -1,3 +1,6 @@
+// Package polaris provides a Tencent Cloud Polaris service-mesh plugin for the Lynx framework.
+// It integrates service registration, discovery, health reporting, rate limiting, and
+// circuit breaking via the Polaris SDK, and exposes Prometheus metrics for all operations.
 package polaris
 
 import (
