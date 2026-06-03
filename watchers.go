@@ -93,7 +93,12 @@ func (sw *ServiceWatcher) Start() {
 	sw.isRunning = true
 	sw.wg.Add(1) // Increment WaitGroup count
 	go func() {
-		defer sw.wg.Done() // Ensure count is decremented when goroutine exits
+		defer sw.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("polaris service watcher panic for %s: %v", sw.serviceName, r)
+			}
+		}()
 		sw.watchLoop()
 	}()
 
@@ -355,7 +360,12 @@ func (cw *ConfigWatcher) Start() {
 	cw.isRunning = true
 	cw.wg.Add(1) // Increment WaitGroup count
 	go func() {
-		defer cw.wg.Done() // Ensure count is decremented when goroutine exits
+		defer cw.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("polaris config watcher panic for %s/%s: %v", cw.fileName, cw.group, r)
+			}
+		}()
 		cw.watchLoop()
 	}()
 

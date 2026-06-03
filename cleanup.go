@@ -178,12 +178,8 @@ func (p *PlugPolaris) stopBackgroundTasks() {
 func (p *PlugPolaris) getShutdownTimeoutDuration() time.Duration {
 	if p.conf != nil && p.conf.ShutdownTimeout != nil && p.conf.ShutdownTimeout.AsDuration() > 0 {
 		d := p.conf.ShutdownTimeout.AsDuration()
-		if d < conf.MinShutdownTimeout {
-			d = conf.MinShutdownTimeout
-		}
-		if d > conf.MaxShutdownTimeout {
-			d = conf.MaxShutdownTimeout
-		}
+		d = max(d, conf.MinShutdownTimeout)
+		d = min(d, conf.MaxShutdownTimeout)
 		return d
 	}
 	return conf.DefaultShutdownTimeout
@@ -242,9 +238,14 @@ func (p *PlugPolaris) cleanupTasksContext(parentCtx context.Context) error {
 
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("polaris SDK cleanup panic: %v", r)
+			}
+			close(done)
+		}()
 		destroySDKResources(sdk, namespace)
 		destroyPolarisClient(polarisClient, namespace)
-		close(done)
 	}()
 
 	var teardownErr error
@@ -282,7 +283,7 @@ func destroySDKResources(sdk api.SDKContext, namespace string) {
 	}
 
 	log.Infof("Closing SDK connection")
-	sdkInfo := map[string]interface{}{
+	sdkInfo := map[string]any{
 		"sdk_type":  fmt.Sprintf("%T", sdk),
 		"namespace": namespace,
 	}
@@ -318,7 +319,7 @@ func destroyPolarisClient(polarisClient *kratospolaris.Polaris, namespace string
 	}
 
 	log.Infof("Destroying Polaris instance")
-	instanceInfo := map[string]interface{}{
+	instanceInfo := map[string]any{
 		"service":       currentLynxName(),
 		"namespace":     namespace,
 		"instance_type": fmt.Sprintf("%T", polarisClient),
@@ -326,7 +327,7 @@ func destroyPolarisClient(polarisClient *kratospolaris.Polaris, namespace string
 
 	log.Infof("Stopping Polaris instance services")
 	log.Infof("Cleaning up instance resources")
-	destroyStats := map[string]interface{}{
+	destroyStats := map[string]any{
 		"service_name":  currentLynxName(),
 		"namespace":     namespace,
 		"destroy_time":  time.Now().Unix(),
