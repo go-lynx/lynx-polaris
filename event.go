@@ -69,7 +69,7 @@ func (p *PlugPolaris) notifyServiceChange(serviceName string, instances []model.
 		return
 	}
 	// Implement notification logic
-	notification := map[string]interface{}{
+	notification := map[string]any{
 		"event_type":      "service_change",
 		"service_name":    serviceName,
 		"namespace":       p.conf.Namespace,
@@ -166,7 +166,7 @@ func (p *PlugPolaris) notifyConfigChange(fileName, group string, config model.Co
 		return
 	}
 	// Implement notification logic
-	notification := map[string]interface{}{
+	notification := map[string]any{
 		"event_type":     "config_change",
 		"config_file":    fileName,
 		"group":          group,
@@ -190,7 +190,7 @@ func (p *PlugPolaris) triggerConfigReload(fileName, group string, config model.C
 		return
 	}
 	// Implement configuration hot reload logic
-	reloadInfo := map[string]interface{}{
+	reloadInfo := map[string]any{
 		"config_file":    fileName,
 		"group":          group,
 		"namespace":      p.conf.Namespace,
@@ -239,7 +239,7 @@ func (p *PlugPolaris) handleServiceWatchDegradation(serviceName string, err erro
 	log.Warnf("Service watch degradation for %s: %v", serviceName, err)
 
 	// Build degradation information
-	degradationInfo := map[string]interface{}{
+	degradationInfo := map[string]any{
 		"service_name":      serviceName,
 		"namespace":         p.conf.Namespace,
 		"error":             err.Error(),
@@ -269,7 +269,7 @@ func (p *PlugPolaris) handleConfigWatchDegradation(fileName, group string, err e
 	log.Warnf("Config watch degradation for %s:%s: %v", fileName, group, err)
 
 	// Implement degradation handling logic
-	degradationInfo := map[string]interface{}{
+	degradationInfo := map[string]any{
 		"config_file":       fileName,
 		"group":             group,
 		"namespace":         p.conf.Namespace,

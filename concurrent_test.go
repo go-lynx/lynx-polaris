@@ -77,9 +77,9 @@ func TestConcurrentCacheAccess(t *testing.T) {
 			// Simulate cache update
 			plugin.cacheMutex.Lock()
 			if plugin.serviceCache == nil {
-				plugin.serviceCache = make(map[string]interface{})
+				plugin.serviceCache = make(map[string]any)
 			}
-			plugin.serviceCache[serviceName] = map[string]interface{}{
+			plugin.serviceCache[serviceName] = map[string]any{
 				"service": serviceName,
 				"index":   index,
 			}
@@ -175,7 +175,7 @@ func BenchmarkConcurrentCacheAccess(b *testing.B) {
 
 	// Initialize cache
 	plugin.cacheMutex.Lock()
-	plugin.serviceCache = make(map[string]interface{})
+	plugin.serviceCache = make(map[string]any)
 	plugin.cacheMutex.Unlock()
 
 	b.ResetTimer()

@@ -275,6 +275,9 @@ func NewPolarisDiscovery(consumer api.ConsumerAPI, namespace string, cfg *conf.P
 
 // GetService gets service instance list
 func (d *PolarisDiscovery) GetService(ctx context.Context, name string) ([]*registry.ServiceInstance, error) {
+	if d.consumer == nil {
+		return nil, fmt.Errorf("polaris consumer API is not initialized")
+	}
 	req := &api.GetInstancesRequest{
 		GetInstancesRequest: model.GetInstancesRequest{
 			Service:   name,
@@ -308,6 +311,9 @@ func (d *PolarisDiscovery) GetService(ctx context.Context, name string) ([]*regi
 
 // Watch watches service changes
 func (d *PolarisDiscovery) Watch(ctx context.Context, name string) (registry.Watcher, error) {
+	if d.consumer == nil {
+		return nil, fmt.Errorf("polaris consumer API is not initialized")
+	}
 	req := &api.WatchServiceRequest{
 		WatchServiceRequest: model.WatchServiceRequest{
 			Key: model.ServiceKey{

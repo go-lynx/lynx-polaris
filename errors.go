@@ -70,7 +70,7 @@ type PolarisError struct {
 	Code    ErrorCode
 	Message string
 	Cause   error
-	Context map[string]interface{}
+	Context map[string]any
 }
 
 // NewPolarisError creates new Polaris error
@@ -78,7 +78,7 @@ func NewPolarisError(code ErrorCode, message string) *PolarisError {
 	return &PolarisError{
 		Code:    code,
 		Message: message,
-		Context: make(map[string]interface{}),
+		Context: make(map[string]any),
 	}
 }
 
@@ -89,7 +89,7 @@ func (e *PolarisError) WithCause(cause error) *PolarisError {
 }
 
 // WithContext adds context information
-func (e *PolarisError) WithContext(key string, value interface{}) *PolarisError {
+func (e *PolarisError) WithContext(key string, value any) *PolarisError {
 	e.Context[key] = value
 	return e
 }

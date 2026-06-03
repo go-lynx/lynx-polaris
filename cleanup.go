@@ -174,26 +174,6 @@ func (p *PlugPolaris) stopBackgroundTasks() {
 	log.Infof("Background tasks stopped")
 }
 
-// getCleanupStats gets cleanup statistics
-func (p *PlugPolaris) getCleanupStats() map[string]interface{} {
-	stats := map[string]interface{}{
-		"cleanup_time": time.Now().Unix(),
-		"plugin_state": map[string]interface{}{
-			"initialized": atomic.LoadInt32(&p.initialized),
-			"destroyed":   atomic.LoadInt32(&p.destroyed),
-		},
-		"resources": map[string]interface{}{
-			"sdk_closed":         p.sdk == nil,
-			"instance_destroyed": p.polaris == nil,
-			"metrics_cleared":    p.metrics == nil,
-			"retry_cleared":      p.retryManager == nil,
-			"breaker_cleared":    p.circuitBreaker == nil,
-		},
-	}
-
-	return stats
-}
-
 // getShutdownTimeoutDuration returns configured shutdown timeout for cleanup
 func (p *PlugPolaris) getShutdownTimeoutDuration() time.Duration {
 	if p.conf != nil && p.conf.ShutdownTimeout != nil && p.conf.ShutdownTimeout.AsDuration() > 0 {

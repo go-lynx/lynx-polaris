@@ -1,24 +1,22 @@
 package polaris
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/go-lynx/lynx/log"
 	"github.com/polarismesh/polaris-go/pkg/model"
 )
 
-// triggerLoadBalancerUpdate triggers load balancer update
+// triggerLoadBalancerUpdate logs the updated instance set and notifies downstream
+// load-balancer integrations.  Extend the stub helpers below to plug in real
+// implementations (Kratos balancer, Nginx upstream, Istio, etc.).
 func (p *PlugPolaris) triggerLoadBalancerUpdate(serviceName string, instances []model.Instance) {
 	if p.conf == nil {
 		return
 	}
-	// Trigger load balancer update
-	// Specific load balancer implementations can be integrated here
 
 	healthyInstances := 0
 	totalWeight := 0
-	instanceList := make([]map[string]interface{}, 0, len(instances))
 
 	for _, instance := range instances {
 		if instance == nil {
@@ -27,110 +25,35 @@ func (p *PlugPolaris) triggerLoadBalancerUpdate(serviceName string, instances []
 		if instance.IsHealthy() {
 			healthyInstances++
 			totalWeight += int(instance.GetWeight())
-
-			// Build instance information
-			instanceInfo := map[string]interface{}{
-				"id":       instance.GetId(),
-				"host":     instance.GetHost(),
-				"port":     instance.GetPort(),
-				"weight":   instance.GetWeight(),
-				"protocol": instance.GetProtocol(),
-				"version":  instance.GetVersion(),
-			}
-			instanceList = append(instanceList, instanceInfo)
 		}
 	}
 
-	// Build load balancer update data
-	lbUpdate := map[string]interface{}{
-		"service_name":  serviceName,
-		"namespace":     p.conf.Namespace,
-		"healthy_count": healthyInstances,
-		"total_weight":  totalWeight,
-		"instances":     instanceList,
-		"updated_at":    time.Now().Unix(),
-	}
+	log.Infof("Load balancer update: service=%s namespace=%s healthy=%d/%d totalWeight=%d updatedAt=%d",
+		serviceName, p.conf.Namespace, healthyInstances, len(instances), totalWeight, time.Now().Unix())
 
-	// Implementation: integrate multiple load balancers
-	// 1. Notify Kratos load balancer
-	p.updateKratosLoadBalancer(serviceName, lbUpdate)
-
-	// 2. Update local load balancer cache
-	p.updateLocalLoadBalancerCache(serviceName, lbUpdate)
-
-	// 3. Notify external load balancers
-	p.updateExternalLoadBalancer(serviceName, lbUpdate)
-
-	// 4. Update service mesh configuration
-	p.updateServiceMeshConfig(serviceName, lbUpdate)
-
-	log.Infof("Load balancer update: %+v", lbUpdate)
+	p.updateKratosLoadBalancer(serviceName)
+	p.updateLocalLoadBalancerCache(serviceName)
+	p.updateExternalLoadBalancer(serviceName)
+	p.updateServiceMeshConfig(serviceName)
 }
 
-// updateKratosLoadBalancer updates Kratos load balancer
-func (p *PlugPolaris) updateKratosLoadBalancer(serviceName string, lbUpdate map[string]interface{}) {
-	// Implementation: notify Kratos load balancer
+// updateKratosLoadBalancer notifies the Kratos balancer of a service-instance change.
+// Integrate with the Kratos selector/balancer API here.
+func (p *PlugPolaris) updateKratosLoadBalancer(serviceName string) {
 	log.Infof("Updating Kratos load balancer for service: %s", serviceName)
-	// Kratos load balancer API can be integrated here
 }
 
-// updateLocalLoadBalancerCache updates local load balancer cache
-func (p *PlugPolaris) updateLocalLoadBalancerCache(serviceName string, lbUpdate map[string]interface{}) {
-	// Implementation: update local load balancer cache
+// updateLocalLoadBalancerCache refreshes the local LB cache for the given service.
+func (p *PlugPolaris) updateLocalLoadBalancerCache(serviceName string) {
 	log.Infof("Updating local load balancer cache for service: %s", serviceName)
-	// Load balancer information in local cache can be updated here
 }
 
-// updateExternalLoadBalancer updates external load balancers
-func (p *PlugPolaris) updateExternalLoadBalancer(serviceName string, lbUpdate map[string]interface{}) {
-	// Implementation: notify external load balancers (Nginx, HAProxy, etc.)
+// updateExternalLoadBalancer pushes instance updates to an external LB (Nginx, HAProxy, etc.).
+func (p *PlugPolaris) updateExternalLoadBalancer(serviceName string) {
 	log.Infof("Updating external load balancer for service: %s", serviceName)
-	// APIs for load balancers like Nginx, HAProxy can be integrated here
 }
 
-// updateServiceMeshConfig updates service mesh configuration
-func (p *PlugPolaris) updateServiceMeshConfig(serviceName string, lbUpdate map[string]interface{}) {
-	// Implementation: update service mesh configuration (Istio, Envoy, etc.)
+// updateServiceMeshConfig pushes instance updates to the service mesh (Istio, Envoy, etc.).
+func (p *PlugPolaris) updateServiceMeshConfig(serviceName string) {
 	log.Infof("Updating service mesh config for service: %s", serviceName)
-	// Configuration APIs for service meshes like Istio, Envoy can be integrated here
-}
-
-// getLoadBalancerStats gets load balancer statistics
-func (p *PlugPolaris) getLoadBalancerStats(serviceName string) map[string]interface{} {
-	if p.conf == nil {
-		return map[string]interface{}{"error": "plugin not configured"}
-	}
-	// Get load balancer statistics
-	stats := map[string]interface{}{
-		"service_name": serviceName,
-		"namespace":    p.conf.Namespace,
-		"timestamp":    time.Now().Unix(),
-		"lb_type":      "multi_type", // Support multiple load balancer types
-	}
-
-	return stats
-}
-
-// validateLoadBalancerUpdate validates load balancer update
-func (p *PlugPolaris) validateLoadBalancerUpdate(serviceName string, lbUpdate map[string]interface{}) error {
-	// Validate the validity of load balancer update data
-	if serviceName == "" {
-		return fmt.Errorf("service name is empty")
-	}
-
-	if lbUpdate == nil {
-		return fmt.Errorf("load balancer update data is nil")
-	}
-
-	// Validate required fields
-	if _, exists := lbUpdate["healthy_count"]; !exists {
-		return fmt.Errorf("missing healthy_count in load balancer update")
-	}
-
-	if _, exists := lbUpdate["instances"]; !exists {
-		return fmt.Errorf("missing instances in load balancer update")
-	}
-
-	log.Infof("Load balancer update validation passed for service: %s", serviceName)
-	return nil
 }

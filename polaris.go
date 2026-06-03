@@ -71,9 +71,9 @@ type PlugPolaris struct {
 	retryMutex              sync.Mutex
 
 	// Cache system
-	serviceCache map[string]interface{} // Service instance cache
-	configCache  map[string]interface{} // Configuration cache
-	cacheMutex   sync.RWMutex           // Cache mutex
+	serviceCache map[string]any // Service instance cache
+	configCache  map[string]any // Configuration cache
+	cacheMutex   sync.RWMutex   // Cache mutex
 }
 
 // ServiceInfo service registration information
@@ -110,8 +110,8 @@ func NewPolarisControlPlane() *PlugPolaris {
 		configWatchers:          make(map[string]*ConfigWatcher),
 		retryingServiceWatchers: make(map[string]struct{}),
 		retryingConfigWatchers:  make(map[string]struct{}),
-		serviceCache:            make(map[string]interface{}),
-		configCache:             make(map[string]interface{}),
+		serviceCache:            make(map[string]any),
+		configCache:             make(map[string]any),
 	}
 }
 
@@ -413,186 +413,79 @@ func (p *PlugPolaris) WatchConfig(fileName, group string) (*ConfigWatcher, error
 	return watcher, nil
 }
 
-// recordServiceChangeAudit records service change audit logs
+// recordServiceChangeAudit logs an audit entry for a service-instance change event.
 func (p *PlugPolaris) recordServiceChangeAudit(serviceName string, instances []model.Instance) {
-	// Record detailed audit information
-	auditInfo := map[string]interface{}{
-		"service_name":   serviceName,
-		"namespace":      p.conf.Namespace,
-		"instance_count": len(instances),
-		"timestamp":      time.Now().Unix(),
-		"instances":      make([]map[string]interface{}, 0, len(instances)),
+	type instanceEntry struct {
+		ID       string `json:"id"`
+		Host     string `json:"host"`
+		Port     uint32 `json:"port"`
+		Weight   int    `json:"weight"`
+		Healthy  bool   `json:"healthy"`
+		Isolated bool   `json:"isolated"`
 	}
-
-	// Collect instance information (with data masking)
-	for _, instance := range instances {
-		if instance == nil {
+	entries := make([]instanceEntry, 0, len(instances))
+	for _, inst := range instances {
+		if inst == nil {
 			continue
 		}
-		instanceInfo := map[string]interface{}{
-			"id":       instance.GetId(),
-			"host":     instance.GetHost(),
-			"port":     instance.GetPort(),
-			"weight":   instance.GetWeight(),
-			"healthy":  instance.IsHealthy(),
-			"isolated": instance.IsIsolated(),
-		}
-		auditInfo["instances"] = append(auditInfo["instances"].([]map[string]interface{}), instanceInfo)
+		entries = append(entries, instanceEntry{
+			ID:       inst.GetId(),
+			Host:     inst.GetHost(),
+			Port:     inst.GetPort(),
+			Weight:   inst.GetWeight(),
+			Healthy:  inst.IsHealthy(),
+			Isolated: inst.IsIsolated(),
+		})
 	}
-
-	log.Infof("Service change audit: %+v", auditInfo)
+	log.Infof("Service change audit: service=%s namespace=%s count=%d instances=%+v",
+		serviceName, p.conf.Namespace, len(instances), entries)
 }
 
-// recordServiceWatchErrorAudit records service watch error audit logs
+// recordServiceWatchErrorAudit logs an audit entry for a service-watcher error.
 func (p *PlugPolaris) recordServiceWatchErrorAudit(serviceName string, err error) {
 	if p.conf == nil {
 		return
 	}
-	auditInfo := map[string]interface{}{
-		"service_name": serviceName,
-		"namespace":    p.conf.Namespace,
-		"error":        err.Error(),
-		"error_type":   fmt.Sprintf("%T", err),
-		"timestamp":    time.Now().Unix(),
-		"plugin_state": map[string]interface{}{
-			"initialized": p.IsInitialized(),
-			"destroyed":   p.IsDestroyed(),
-		},
-	}
-
-	log.Errorf("Service watch error audit: %+v", auditInfo)
+	log.Errorf("Service watch error audit: service=%s namespace=%s initialized=%v destroyed=%v err=%v errType=%T",
+		serviceName, p.conf.Namespace, p.IsInitialized(), p.IsDestroyed(), err, err)
 }
 
-// sendServiceWatchAlert sends service watch alerts
+// sendServiceWatchAlert emits a structured warning log for a service-watcher error.
+// Integrate external alerting (PagerDuty, DingTalk, SMS, etc.) here when needed.
 func (p *PlugPolaris) sendServiceWatchAlert(serviceName string, err error) {
 	if p.conf == nil {
 		return
 	}
-	// Implement alert notification logic
-	alertInfo := map[string]interface{}{
-		"alert_type":   "service_watch_error",
-		"service_name": serviceName,
-		"namespace":    p.conf.Namespace,
-		"error":        err.Error(),
-		"error_type":   fmt.Sprintf("%T", err),
-		"severity":     "warning",
-		"timestamp":    time.Now().Unix(),
-		"plugin_state": map[string]interface{}{
-			"initialized": p.IsInitialized(),
-			"destroyed":   p.IsDestroyed(),
-		},
-	}
-
-	// Implementation: integrate multiple alert channels
-	// 1. Send to monitoring system
-	p.sendToMonitoringSystem(alertInfo)
-
-	// 2. Send to message queue
-	p.sendToMessageQueue(alertInfo)
-
-	// 3. Send DingTalk/WeChat Work notifications
-	p.sendToIMNotification(alertInfo)
-
-	// 4. Send email alerts
-	p.sendEmailAlert(alertInfo)
-
-	// 5. Send SMS alerts
-	p.sendSMSAlert(alertInfo)
-
-	log.Warnf("Service watch alert: %+v", alertInfo)
+	log.Warnf("Service watch alert: type=service_watch_error service=%s namespace=%s severity=warning initialized=%v destroyed=%v err=%v",
+		serviceName, p.conf.Namespace, p.IsInitialized(), p.IsDestroyed(), err)
 }
 
-// sendToMonitoringSystem sends to monitoring system
-func (p *PlugPolaris) sendToMonitoringSystem(alertInfo map[string]interface{}) {
-	// Implementation: send to monitoring systems like Prometheus, Grafana
-	log.Infof("Sending alert to monitoring system: %s", alertInfo["alert_type"])
-	// Specific monitoring system APIs can be integrated here
-}
-
-// sendToMessageQueue sends to message queue
-func (p *PlugPolaris) sendToMessageQueue(alertInfo map[string]interface{}) {
-	// Implementation: send to message queues like Kafka, RabbitMQ
-	log.Infof("Sending alert to message queue: %s", alertInfo["alert_type"])
-	// Specific message queue clients can be integrated here
-}
-
-// sendToIMNotification sends instant messaging notifications
-func (p *PlugPolaris) sendToIMNotification(alertInfo map[string]interface{}) {
-	// Implementation: send DingTalk, WeChat Work notifications
-	log.Infof("Sending IM notification: %s", alertInfo["alert_type"])
-	// DingTalk/WeChat Work bot APIs can be integrated here
-}
-
-// sendEmailAlert sends email alerts
-func (p *PlugPolaris) sendEmailAlert(alertInfo map[string]interface{}) {
-	// Implementation: send email alerts
-	log.Infof("Sending email alert: %s", alertInfo["alert_type"])
-	// Email sending services can be integrated here
-}
-
-// sendSMSAlert sends SMS alerts
-func (p *PlugPolaris) sendSMSAlert(alertInfo map[string]interface{}) {
-	// Implementation: send SMS alerts
-	log.Infof("Sending SMS alert: %s", alertInfo["alert_type"])
-	// SMS sending services can be integrated here
-}
-
-// recordConfigChangeAudit records configuration change audit logs
+// recordConfigChangeAudit logs an audit entry for a configuration change event.
 func (p *PlugPolaris) recordConfigChangeAudit(fileName, group string, config model.ConfigFile) {
 	if p.conf == nil || config == nil {
 		return
 	}
-	auditInfo := map[string]interface{}{
-		"config_file":    fileName,
-		"group":          group,
-		"namespace":      p.conf.Namespace,
-		"content_length": len(config.GetContent()),
-		"timestamp":      time.Now().Unix(),
-		"change_type":    "config_updated",
-	}
-
-	log.Infof("Config change audit: %+v", auditInfo)
+	log.Infof("Config change audit: file=%s group=%s namespace=%s contentLen=%d changeType=config_updated",
+		fileName, group, p.conf.Namespace, len(config.GetContent()))
 }
 
-// recordConfigWatchErrorAudit records configuration watch error audit logs
+// recordConfigWatchErrorAudit logs an audit entry for a config-watcher error.
 func (p *PlugPolaris) recordConfigWatchErrorAudit(fileName, group string, err error) {
 	if p.conf == nil {
 		return
 	}
-	auditInfo := map[string]interface{}{
-		"config_file": fileName,
-		"group":       group,
-		"namespace":   p.conf.Namespace,
-		"error":       err.Error(),
-		"error_type":  fmt.Sprintf("%T", err),
-		"timestamp":   time.Now().Unix(),
-		"plugin_state": map[string]interface{}{
-			"initialized": p.IsInitialized(),
-			"destroyed":   p.IsDestroyed(),
-		},
-	}
-
-	log.Errorf("Config watch error audit: %+v", auditInfo)
+	log.Errorf("Config watch error audit: file=%s group=%s namespace=%s initialized=%v destroyed=%v err=%v errType=%T",
+		fileName, group, p.conf.Namespace, p.IsInitialized(), p.IsDestroyed(), err, err)
 }
 
-// sendConfigWatchAlert sends configuration watch alerts
+// sendConfigWatchAlert emits a structured warning log for a config-watcher error.
+// Integrate external alerting here when needed.
 func (p *PlugPolaris) sendConfigWatchAlert(fileName, group string, err error) {
 	if p.conf == nil {
 		return
 	}
-	alertInfo := map[string]interface{}{
-		"alert_type":  "config_watch_error",
-		"config_file": fileName,
-		"group":       group,
-		"namespace":   p.conf.Namespace,
-		"error":       err.Error(),
-		"error_type":  fmt.Sprintf("%T", err),
-		"severity":    "warning",
-		"timestamp":   time.Now().Unix(),
-	}
-
-	// Specific alert implementations can be integrated here
-	log.Warnf("Config watch alert: %+v", alertInfo)
+	log.Warnf("Config watch alert: type=config_watch_error file=%s group=%s namespace=%s severity=warning err=%v",
+		fileName, group, p.conf.Namespace, err)
 }
 
 // tryStartConfigWatchRetry marks config as retrying and returns true if this goroutine should run the retry.
