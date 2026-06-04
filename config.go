@@ -41,8 +41,7 @@ func (p *PlugPolaris) GetConfig(fileName string, group string) (config.Source, e
 			}))
 }
 
-// GetConfigSources gets all configuration sources for multi-config loading
-// This method implements the MultiConfigControlPlane interface
+// GetConfigSources returns all configuration sources (implements MultiConfigControlPlane).
 func (p *PlugPolaris) GetConfigSources() ([]config.Source, error) {
 	if err := p.checkInitialized(); err != nil {
 		return nil, err
@@ -336,8 +335,8 @@ func (p *PlugPolaris) GetConfigValue(fileName, group string) (string, error) {
 	return content, nil
 }
 
-// loadPolarisConfiguration loads Polaris SDK configuration file and initializes SDK
-// This method determines whether to use custom configuration file based on the config_path field in configuration
+// loadPolarisConfiguration loads the Polaris SDK config file (from ConfigPath when set,
+// otherwise falls back to the embedded default) and initializes the SDK context.
 func (p *PlugPolaris) loadPolarisConfiguration() (api.SDKContext, error) {
 	// Create basic configuration
 	configuration := api.NewConfiguration()
