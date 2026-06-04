@@ -27,15 +27,27 @@ func (p *PlugPolaris) NewServiceRegistry() registry.Registrar {
 		return nil
 	}
 
+	p.mu.RLock()
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	p.mu.RUnlock()
+	if sdk == nil {
+		log.Warnf("Polaris SDK is nil, returning nil registrar")
+		return nil
+	}
+
 	// Create Provider API client
-	providerAPI := api.NewProviderAPIByContext(p.sdk)
+	providerAPI := api.NewProviderAPIByContext(sdk)
 	if providerAPI == nil {
 		log.Errorf("Failed to create provider API")
 		return nil
 	}
 
 	// Return Polaris-based service registrar
-	return NewPolarisRegistrar(providerAPI, p.conf.Namespace)
+	return NewPolarisRegistrar(providerAPI, namespace)
 }
 
 // NewServiceDiscovery implements ServiceRegistry interface
@@ -45,15 +57,28 @@ func (p *PlugPolaris) NewServiceDiscovery() registry.Discovery {
 		return nil
 	}
 
+	p.mu.RLock()
+	sdk := p.sdk
+	cfg := p.conf
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	p.mu.RUnlock()
+	if sdk == nil {
+		log.Warnf("Polaris SDK is nil, returning nil discovery")
+		return nil
+	}
+
 	// Create Consumer API client
-	consumerAPI := api.NewConsumerAPIByContext(p.sdk)
+	consumerAPI := api.NewConsumerAPIByContext(sdk)
 	if consumerAPI == nil {
 		log.Errorf("Failed to create consumer API")
 		return nil
 	}
 
 	// Return Polaris-based service discovery client with configurable watch interval and retry policy
-	return NewPolarisDiscovery(consumerAPI, p.conf.Namespace, p.conf)
+	return NewPolarisDiscovery(consumerAPI, namespace, cfg)
 }
 
 // parseEndpoints parses endpoint information
@@ -188,6 +213,39 @@ func (r *PolarisRegistrar) Deregister(ctx context.Context, service *registry.Ser
 
 	log.Infof("Successfully deregistered service %s at %s:%d", service.Name, host, port)
 	return nil
+}
+
+// Close deregisters all instances tracked by this registrar.
+// It must be called before the underlying SDK context is destroyed so that
+// in-flight Kratos shutdown does not deregister through a destroyed SDK.
+func (r *PolarisRegistrar) Close(ctx context.Context) {
+	r.mu.Lock()
+	instances := r.instances
+	r.instances = make(map[string]*registry.ServiceInstance)
+	r.mu.Unlock()
+
+	if r.provider == nil {
+		return
+	}
+	for _, instance := range instances {
+		if instance == nil {
+			continue
+		}
+		host, port, _ := parseEndpoints(instance.Endpoints)
+		req := &api.InstanceDeRegisterRequest{
+			InstanceDeRegisterRequest: model.InstanceDeRegisterRequest{
+				Service:   instance.Name,
+				Namespace: r.namespace,
+				Host:      host,
+				Port:      port,
+			},
+		}
+		if err := r.provider.Deregister(req); err != nil {
+			log.Warnf("Failed to deregister service %s at %s:%d during shutdown: %v", instance.Name, host, port, err)
+			continue
+		}
+		log.Infof("Deregistered service %s at %s:%d during shutdown", instance.Name, host, port)
+	}
 }
 
 // GetService gets service information (implements Discovery interface)

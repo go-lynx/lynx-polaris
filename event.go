@@ -10,14 +10,21 @@ import (
 
 // handleServiceInstancesChanged handles service instance change events
 func (p *PlugPolaris) handleServiceInstancesChanged(serviceName string, instances []model.Instance) {
-	if p.IsDestroyed() || p.conf == nil {
+	// Capture mutable plugin state under the lock at callback entry to avoid a
+	// TOCTOU data race against concurrent cleanup.
+	p.mu.RLock()
+	destroyed := p.IsDestroyed()
+	conf := p.conf
+	metrics := p.metrics
+	p.mu.RUnlock()
+	if destroyed || conf == nil {
 		return
 	}
 	log.Infof("Service %s instances changed: %d instances", serviceName, len(instances))
 
 	// Record service discovery metrics
-	if p.metrics != nil {
-		p.metrics.RecordServiceDiscovery(serviceName, p.conf.Namespace, "changed")
+	if metrics != nil {
+		metrics.RecordServiceDiscovery(serviceName, conf.Namespace, "changed")
 	}
 
 	// 1. Update local cache
@@ -38,14 +45,18 @@ func (p *PlugPolaris) handleServiceInstancesChanged(serviceName string, instance
 
 // handleServiceWatchError handles service watch error events
 func (p *PlugPolaris) handleServiceWatchError(serviceName string, err error) {
-	if p.IsDestroyed() {
+	p.mu.RLock()
+	destroyed := p.IsDestroyed()
+	metrics := p.metrics
+	p.mu.RUnlock()
+	if destroyed {
 		return
 	}
 	log.Errorf("Service %s watch error: %v", serviceName, err)
 
 	// Record error metrics
-	if p.metrics != nil {
-		p.metrics.RecordSDKOperation("service_watch_error", "error")
+	if metrics != nil {
+		metrics.RecordSDKOperation("service_watch_error", "error")
 	}
 
 	// 1. Record error audit logs
@@ -106,14 +117,21 @@ func (p *PlugPolaris) notifyServiceChange(serviceName string, instances []model.
 
 // handleConfigChanged handles configuration change events
 func (p *PlugPolaris) handleConfigChanged(fileName, group string, config model.ConfigFile) {
-	if p.IsDestroyed() || p.conf == nil {
+	// Capture mutable plugin state under the lock at callback entry to avoid a
+	// TOCTOU data race against concurrent cleanup.
+	p.mu.RLock()
+	destroyed := p.IsDestroyed()
+	conf := p.conf
+	metrics := p.metrics
+	p.mu.RUnlock()
+	if destroyed || conf == nil {
 		return
 	}
 	log.Infof("Config %s:%s changed", fileName, group)
 
 	// Record configuration change metrics
-	if p.metrics != nil {
-		p.metrics.RecordConfigChange(fileName, group)
+	if metrics != nil {
+		metrics.RecordConfigChange(fileName, group)
 	}
 
 	// 1. Record configuration change audit logs
@@ -134,14 +152,18 @@ func (p *PlugPolaris) handleConfigChanged(fileName, group string, config model.C
 
 // handleConfigWatchError handles configuration watch error events
 func (p *PlugPolaris) handleConfigWatchError(fileName, group string, err error) {
-	if p.IsDestroyed() {
+	p.mu.RLock()
+	destroyed := p.IsDestroyed()
+	metrics := p.metrics
+	p.mu.RUnlock()
+	if destroyed {
 		return
 	}
 	log.Errorf("Config %s:%s watch error: %v", fileName, group, err)
 
 	// Record error metrics
-	if p.metrics != nil {
-		p.metrics.RecordConfigOperation("watch_error", fileName, group, "error")
+	if metrics != nil {
+		metrics.RecordConfigOperation("watch_error", fileName, group, "error")
 	}
 
 	// 1. Record error audit logs

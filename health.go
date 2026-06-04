@@ -23,28 +23,50 @@ func (p *PlugPolaris) checkHealthContext(ctx context.Context) error {
 		return err
 	}
 
+	// Snapshot mutable plugin state under the lock to avoid a data race / nil
+	// dereference if cleanup runs concurrently with this health check.
+	p.mu.RLock()
+	pol := p.polaris
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	p.mu.RUnlock()
+
 	// Check Polaris instance
-	if p.polaris == nil {
+	if pol == nil {
 		return NewInitError("Polaris instance is nil")
 	}
 
 	// Check SDK connection
-	if p.sdk == nil {
+	if sdk == nil {
 		return NewInitError("Polaris SDK context is nil")
 	}
 
 	// Perform actual health check of the Polaris control plane
-	return p.checkPolarisControlPlaneHealthContext(ctx)
+	return p.checkPolarisControlPlaneHealthContext(ctx, sdk, namespace)
 }
 
 // checkPolarisControlPlaneHealth checks the health of the Polaris control plane.
-func (p *PlugPolaris) checkPolarisControlPlaneHealthContext(ctx context.Context) error {
+func (p *PlugPolaris) checkPolarisControlPlaneHealthContext(ctx context.Context, sdk api.SDKContext, namespace string) error {
+	// Snapshot metrics/breaker/retry under the lock for the same reason.
+	p.mu.RLock()
+	metrics := p.metrics
+	circuitBreaker := p.circuitBreaker
+	retryManager := p.retryManager
+	p.mu.RUnlock()
+
+	if circuitBreaker == nil || retryManager == nil {
+		return NewInitError("Polaris plugin has been destroyed")
+	}
+
 	// Record the start of the health check
-	if p.metrics != nil {
-		p.metrics.RecordHealthCheck("polaris", "start")
+	if metrics != nil {
+		metrics.RecordHealthCheck("polaris", "start")
 		defer func() {
-			if p.metrics != nil {
-				p.metrics.RecordHealthCheck("polaris", "success")
+			if metrics != nil {
+				metrics.RecordHealthCheck("polaris", "success")
 			}
 		}()
 	}
@@ -53,25 +75,25 @@ func (p *PlugPolaris) checkPolarisControlPlaneHealthContext(ctx context.Context)
 
 	// Execute health checks using circuit breaker and retry mechanisms
 	var healthErr error
-	err := p.circuitBreaker.Do(func() error {
-		return p.retryManager.DoWithRetryContext(ctx, func() error {
+	err := circuitBreaker.Do(func() error {
+		return retryManager.DoWithRetryContext(ctx, func() error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 			// 1) Check SDK connection status
-			if err := p.checkSDKConnection(); err != nil {
+			if err := p.checkSDKConnection(sdk, namespace); err != nil {
 				healthErr = err
 				return err
 			}
 
 			// 2) Check service discovery functionality
-			if err := p.checkServiceDiscoveryHealth(); err != nil {
+			if err := p.checkServiceDiscoveryHealth(sdk, namespace); err != nil {
 				healthErr = err
 				return err
 			}
 
 			// 3) Check configuration management functionality
-			if err := p.checkConfigManagementHealth(); err != nil {
+			if err := p.checkConfigManagementHealth(sdk, namespace); err != nil {
 				healthErr = err
 				return err
 			}
@@ -88,8 +110,8 @@ func (p *PlugPolaris) checkPolarisControlPlaneHealthContext(ctx context.Context)
 
 	if err != nil {
 		log.Errorf("Polaris control plane health check failed: %v", healthErr)
-		if p.metrics != nil {
-			p.metrics.RecordHealthCheck("polaris", "error")
+		if metrics != nil {
+			metrics.RecordHealthCheck("polaris", "error")
 		}
 		return WrapServiceError(healthErr, ErrCodeServiceUnavailable, "Polaris control plane health check failed")
 	}
@@ -99,9 +121,9 @@ func (p *PlugPolaris) checkPolarisControlPlaneHealthContext(ctx context.Context)
 }
 
 // checkSDKConnection verifies SDK connection status.
-func (p *PlugPolaris) checkSDKConnection() error {
+func (p *PlugPolaris) checkSDKConnection(sdk api.SDKContext, namespace string) error {
 	// Try to create a Consumer API client to validate connectivity
-	consumerAPI := api.NewConsumerAPIByContext(p.sdk)
+	consumerAPI := api.NewConsumerAPIByContext(sdk)
 	if consumerAPI == nil {
 		return fmt.Errorf("failed to create consumer API client")
 	}
@@ -110,7 +132,7 @@ func (p *PlugPolaris) checkSDKConnection() error {
 	req := &api.GetInstancesRequest{
 		GetInstancesRequest: model.GetInstancesRequest{
 			Service:   "health-check-service", // use a test service name
-			Namespace: p.conf.Namespace,
+			Namespace: namespace,
 		},
 	}
 
@@ -129,15 +151,15 @@ func (p *PlugPolaris) checkSDKConnection() error {
 }
 
 // checkServiceDiscoveryHealth checks service discovery with a real GetInstances probe.
-func (p *PlugPolaris) checkServiceDiscoveryHealth() error {
-	consumerAPI := api.NewConsumerAPIByContext(p.sdk)
+func (p *PlugPolaris) checkServiceDiscoveryHealth(sdk api.SDKContext, namespace string) error {
+	consumerAPI := api.NewConsumerAPIByContext(sdk)
 	if consumerAPI == nil {
 		return fmt.Errorf("failed to create consumer API for discovery probe")
 	}
 	req := &api.GetInstancesRequest{
 		GetInstancesRequest: model.GetInstancesRequest{
 			Service:   "lynx-polaris-health-probe",
-			Namespace: p.conf.Namespace,
+			Namespace: namespace,
 		},
 	}
 	_, err := consumerAPI.GetInstances(req)
@@ -153,12 +175,12 @@ func (p *PlugPolaris) checkServiceDiscoveryHealth() error {
 }
 
 // checkConfigManagementHealth checks configuration management with a real GetConfigFile probe.
-func (p *PlugPolaris) checkConfigManagementHealth() error {
-	configAPI := api.NewConfigFileAPIBySDKContext(p.sdk)
+func (p *PlugPolaris) checkConfigManagementHealth(sdk api.SDKContext, namespace string) error {
+	configAPI := api.NewConfigFileAPIBySDKContext(sdk)
 	if configAPI == nil {
 		return fmt.Errorf("failed to create config API for config probe")
 	}
-	_, err := configAPI.GetConfigFile(p.conf.Namespace, "DEFAULT_GROUP", "lynx-polaris-health-probe.yaml")
+	_, err := configAPI.GetConfigFile(namespace, "DEFAULT_GROUP", "lynx-polaris-health-probe.yaml")
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "NotFound") {
 			log.Debugf("Config management probe passed (file not found is expected)")

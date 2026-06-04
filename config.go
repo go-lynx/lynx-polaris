@@ -264,12 +264,29 @@ func (p *PlugPolaris) GetConfigValue(fileName, group string) (string, error) {
 		return "", err
 	}
 
+	// Snapshot mutable plugin state under the lock to avoid a data race / nil
+	// dereference if cleanup runs concurrently with this request.
+	p.mu.RLock()
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	metrics := p.metrics
+	circuitBreaker := p.circuitBreaker
+	retryManager := p.retryManager
+	p.mu.RUnlock()
+
+	if sdk == nil || circuitBreaker == nil || retryManager == nil {
+		return "", NewInitError("Polaris plugin has been destroyed")
+	}
+
 	// Record configuration operation metrics
-	if p.metrics != nil {
-		p.metrics.RecordConfigOperation("get", fileName, group, "start")
+	if metrics != nil {
+		metrics.RecordConfigOperation("get", fileName, group, "start")
 		defer func() {
-			if p.metrics != nil {
-				p.metrics.RecordConfigOperation("get", fileName, group, "success")
+			if metrics != nil {
+				metrics.RecordConfigOperation("get", fileName, group, "success")
 			}
 		}()
 	}
@@ -277,7 +294,7 @@ func (p *PlugPolaris) GetConfigValue(fileName, group string) (string, error) {
 	log.Infof("Getting configFile: %s, group: %s", fileName, group)
 
 	// Create Config API client
-	configAPI := api.NewConfigFileAPIBySDKContext(p.sdk)
+	configAPI := api.NewConfigFileAPIBySDKContext(sdk)
 	if configAPI == nil {
 		return "", NewInitError("failed to create configFile API")
 	}
@@ -286,10 +303,10 @@ func (p *PlugPolaris) GetConfigValue(fileName, group string) (string, error) {
 	var configFile model.ConfigFile
 	var lastErr error
 
-	err := p.circuitBreaker.Do(func() error {
-		return p.retryManager.DoWithRetry(func() error {
+	err := circuitBreaker.Do(func() error {
+		return retryManager.DoWithRetry(func() error {
 			// Call SDK API to get configuration
-			cfg, err := configAPI.GetConfigFile(p.conf.Namespace, group, fileName)
+			cfg, err := configAPI.GetConfigFile(namespace, group, fileName)
 			if err != nil {
 				lastErr = err
 				return err
@@ -301,8 +318,8 @@ func (p *PlugPolaris) GetConfigValue(fileName, group string) (string, error) {
 
 	if err != nil {
 		log.Errorf("Failed to get configFile %s:%s after retries: %v", fileName, group, err)
-		if p.metrics != nil {
-			p.metrics.RecordConfigOperation("get", fileName, group, "error")
+		if metrics != nil {
+			metrics.RecordConfigOperation("get", fileName, group, "error")
 		}
 		return "", WrapServiceError(lastErr, ErrCodeConfigGetFailed, "failed to get configFile value")
 	}
@@ -386,12 +403,12 @@ func (p *PlugPolaris) applyPolarisConfig(_ any, polarisConfig map[string]any) er
 		return fmt.Errorf("failed to validate polaris config: %w", err)
 	}
 
-	// Set environment variable for Polaris SDK to read configuration file
-	err := os.Setenv("POLARIS_CONFIG_PATH", p.conf.ConfigPath)
-	if err != nil {
-		return err
-	}
-	log.Infof("Set POLARIS_CONFIG_PATH environment variable to: %s", p.conf.ConfigPath)
+	// NOTE: The configuration file path is passed directly to the SDK via
+	// api.InitContextByFile(p.conf.ConfigPath) in loadPolarisConfiguration.
+	// We deliberately do NOT mutate the process-global POLARIS_CONFIG_PATH
+	// environment variable here: os.Setenv is not concurrency-safe and would
+	// leak state across plugin instances / the whole process.
+	log.Infof("Polaris configuration file will be loaded directly from: %s", p.conf.ConfigPath)
 
 	return nil
 }
