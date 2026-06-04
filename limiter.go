@@ -57,12 +57,29 @@ func (p *PlugPolaris) CheckRateLimit(serviceName string, labels map[string]strin
 		return false, err
 	}
 
+	// Snapshot mutable plugin state under the lock to avoid a data race / nil
+	// dereference if cleanup runs concurrently with this request.
+	p.mu.RLock()
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	metrics := p.metrics
+	circuitBreaker := p.circuitBreaker
+	retryManager := p.retryManager
+	p.mu.RUnlock()
+
+	if sdk == nil || circuitBreaker == nil || retryManager == nil {
+		return false, NewInitError("Polaris plugin has been destroyed")
+	}
+
 	// Record metrics for the rate limit check operation
-	if p.metrics != nil {
-		p.metrics.RecordSDKOperation("check_rate_limit", "start")
+	if metrics != nil {
+		metrics.RecordSDKOperation("check_rate_limit", "start")
 		defer func() {
-			if p.metrics != nil {
-				p.metrics.RecordSDKOperation("check_rate_limit", "success")
+			if metrics != nil {
+				metrics.RecordSDKOperation("check_rate_limit", "success")
 			}
 		}()
 	}
@@ -70,7 +87,7 @@ func (p *PlugPolaris) CheckRateLimit(serviceName string, labels map[string]strin
 	log.Infof("Checking rate limit for service: %s", serviceName)
 
 	// Create Limit API client
-	limitAPI := api.NewLimitAPIByContext(p.sdk)
+	limitAPI := api.NewLimitAPIByContext(sdk)
 	if limitAPI == nil {
 		return false, NewInitError("failed to create limit API")
 	}
@@ -78,7 +95,7 @@ func (p *PlugPolaris) CheckRateLimit(serviceName string, labels map[string]strin
 	// Build quota request
 	quotaReq := api.NewQuotaRequest()
 	quotaReq.SetService(serviceName)
-	quotaReq.SetNamespace(p.conf.Namespace)
+	quotaReq.SetNamespace(namespace)
 
 	// Set labels
 	for key, value := range labels {
@@ -89,8 +106,8 @@ func (p *PlugPolaris) CheckRateLimit(serviceName string, labels map[string]strin
 	var future api.QuotaFuture
 	var lastErr error
 
-	err := p.circuitBreaker.Do(func() error {
-		return p.retryManager.DoWithRetry(func() error {
+	err := circuitBreaker.Do(func() error {
+		return retryManager.DoWithRetry(func() error {
 			// Call SDK API to check rate limit
 			fut, err := limitAPI.GetQuota(quotaReq)
 			if err != nil {
@@ -104,8 +121,8 @@ func (p *PlugPolaris) CheckRateLimit(serviceName string, labels map[string]strin
 
 	if err != nil {
 		log.Errorf("Failed to check rate limit for service %s after retries: %v", serviceName, err)
-		if p.metrics != nil {
-			p.metrics.RecordSDKOperation("check_rate_limit", "error")
+		if metrics != nil {
+			metrics.RecordSDKOperation("check_rate_limit", "error")
 		}
 		return false, WrapServiceError(lastErr, ErrCodeRateLimitFailed, "failed to check rate limit")
 	}

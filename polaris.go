@@ -44,6 +44,11 @@ type PlugPolaris struct {
 	// SDK components
 	sdk api.SDKContext
 
+	// Handed-out registry adapters that wrap the same SDK context. Retained so
+	// they can be torn down (deregistered) before the SDK is destroyed, avoiding
+	// use-after-destroy when Kratos calls Register/GetService during shutdown.
+	registrar *PolarisRegistrar
+
 	// Enhanced components
 	metrics        *Metrics
 	retryManager   *RetryManager
@@ -255,6 +260,13 @@ func (p *PlugPolaris) publishRuntimeResources() error {
 		return err
 	}
 	if registrar := p.NewServiceRegistry(); registrar != nil {
+		// Retain the concrete registrar so it can be deregistered before the SDK
+		// context is destroyed during cleanup.
+		if pr, ok := registrar.(*PolarisRegistrar); ok {
+			p.mu.Lock()
+			p.registrar = pr
+			p.mu.Unlock()
+		}
 		if err := p.rt.RegisterSharedResource(pluginName+".service_registry", registrar); err != nil {
 			log.Warnf("failed to register polaris service registry resource: %v", err)
 		}
@@ -373,6 +385,21 @@ func (p *PlugPolaris) WatchConfig(fileName, group string) (*ConfigWatcher, error
 
 	log.Infof("Watching config: %s, group: %s", fileName, group)
 
+	// Snapshot mutable plugin state under the lock to avoid a data race / nil
+	// dereference if cleanup runs concurrently.
+	p.mu.RLock()
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	metrics := p.metrics
+	p.mu.RUnlock()
+
+	if sdk == nil {
+		return nil, NewInitError("Polaris plugin has been destroyed")
+	}
+
 	// Check if the configuration is already being watched
 	configKey := fmt.Sprintf("%s:%s", fileName, group)
 	p.watcherMutex.Lock()
@@ -384,14 +411,14 @@ func (p *PlugPolaris) WatchConfig(fileName, group string) (*ConfigWatcher, error
 	p.watcherMutex.Unlock()
 
 	// Create Config API client
-	configAPI := api.NewConfigFileAPIBySDKContext(p.sdk)
+	configAPI := api.NewConfigFileAPIBySDKContext(sdk)
 	if configAPI == nil {
 		return nil, NewInitError("failed to create config API")
 	}
 
 	// Create configuration watcher and connect to SDK
-	watcher := NewConfigWatcherWithContext(p.watcherContext(), configAPI, fileName, group, p.conf.Namespace)
-	watcher.metrics = p.metrics // Pass metrics reference
+	watcher := NewConfigWatcherWithContext(p.watcherContext(), configAPI, fileName, group, namespace)
+	watcher.metrics = metrics // Pass metrics reference
 
 	// Set event handling callbacks
 	watcher.SetOnConfigChanged(func(config model.ConfigFile) {

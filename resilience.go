@@ -112,7 +112,16 @@ type CircuitBreaker struct {
 	state            CircuitState
 	halfOpenInFlight bool
 	mu               sync.Mutex
+
+	// Rolling window for the closed state: counters are evaluated over the most
+	// recent window only, so the failure rate reflects current health rather than
+	// the entire process lifetime.
+	rollingWindow time.Duration
+	windowStart   time.Time
 }
+
+// defaultRollingWindow is the time span over which closed-state failure rate is computed.
+const defaultRollingWindow = 60 * time.Second
 
 // CircuitState circuit breaker state
 type CircuitState int
@@ -132,6 +141,26 @@ func NewCircuitBreaker(threshold float64, halfOpenTimeout time.Duration) *Circui
 		threshold:       threshold,
 		halfOpenTimeout: halfOpenTimeout,
 		state:           CircuitStateClosed,
+		rollingWindow:   defaultRollingWindow,
+		windowStart:     time.Now(),
+	}
+}
+
+// rollWindowLocked resets the closed-state counters when the rolling window has
+// elapsed, so the failure rate is always evaluated over recent activity only.
+// Must be called with cb.mu held.
+func (cb *CircuitBreaker) rollWindowLocked(now time.Time) {
+	if cb.rollingWindow <= 0 {
+		return
+	}
+	if cb.windowStart.IsZero() {
+		cb.windowStart = now
+		return
+	}
+	if now.Sub(cb.windowStart) >= cb.rollingWindow {
+		cb.failureCount = 0
+		cb.successCount = 0
+		cb.windowStart = now
 	}
 }
 
@@ -187,24 +216,31 @@ func (cb *CircuitBreaker) afterRequest(err error) {
 
 // recordFailure records failure
 func (cb *CircuitBreaker) recordFailure() {
+	now := time.Now()
+	// Roll the window before counting so the failure rate reflects recent activity.
+	cb.rollWindowLocked(now)
 	cb.failureCount++
-	cb.lastFailure = time.Now()
+	cb.lastFailure = now
 
-	// Calculate failure rate
+	// Calculate failure rate over the current rolling window
 	failureRate := float64(cb.failureCount) / float64(cb.failureCount+cb.successCount)
 
 	if cb.state == CircuitStateClosed && failureRate >= cb.threshold {
 		cb.state = CircuitStateOpen
+		// Reset counters on transition so a fresh window is used after recovery.
+		cb.resetCounters()
 		log.Warnf("Circuit breaker opened: failure rate %.2f >= threshold %.2f",
 			failureRate, cb.threshold)
 	} else if cb.state == CircuitStateHalfOpen {
 		cb.state = CircuitStateOpen
+		cb.resetCounters()
 		log.Warnf("Circuit breaker reopened after failed attempt")
 	}
 }
 
 // recordSuccess records success
 func (cb *CircuitBreaker) recordSuccess() {
+	cb.rollWindowLocked(time.Now())
 	cb.successCount++
 
 	if cb.state == CircuitStateHalfOpen {
@@ -215,10 +251,11 @@ func (cb *CircuitBreaker) recordSuccess() {
 	}
 }
 
-// resetCounters resets counters
+// resetCounters resets counters and starts a fresh rolling window
 func (cb *CircuitBreaker) resetCounters() {
 	cb.failureCount = 0
 	cb.successCount = 0
+	cb.windowStart = time.Now()
 }
 
 // GetState gets circuit breaker state

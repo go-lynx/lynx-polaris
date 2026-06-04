@@ -109,11 +109,10 @@ func (p *PlugPolaris) releaseMemoryResources() {
 		p.serviceInfo = nil
 	}
 
-	// Clear configuration
-	if p.conf != nil {
-		log.Infof("Clearing configuration")
-		p.conf = nil
-	}
+	// NOTE: p.conf is intentionally NOT cleared here. Public methods snapshot
+	// p.conf under p.mu and may still be reading it (e.g. p.conf.Namespace) when
+	// cleanup runs concurrently with in-flight requests. Nilling it would cause a
+	// data race / nil-pointer panic on shutdown-while-serving.
 
 	// Clear enhanced components
 	if p.metrics != nil {
@@ -216,8 +215,10 @@ func (p *PlugPolaris) cleanupTasksContext(parentCtx context.Context) error {
 	}
 	sdk := p.sdk
 	polarisClient := p.polaris
+	registrar := p.registrar
 	p.sdk = nil
 	p.polaris = nil
+	p.registrar = nil
 	p.mu.Unlock()
 
 	defer func() {
@@ -235,6 +236,20 @@ func (p *PlugPolaris) cleanupTasksContext(parentCtx context.Context) error {
 
 	cleanupCtx, cancel := p.createCleanupContext(parentCtx, timeout)
 	defer cancel()
+
+	// Deregister handed-out registry adapters BEFORE destroying the SDK context.
+	// These adapters wrap the same SDK; deregistering after sdk.Destroy() would be
+	// a use-after-destroy.
+	if registrar != nil {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Errorf("polaris registrar teardown panic: %v", r)
+				}
+			}()
+			registrar.Close(cleanupCtx)
+		}()
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -302,10 +317,13 @@ func destroySDKResources(sdk api.SDKContext, namespace string) {
 		providerAPI.Destroy()
 	}
 	if configAPI != nil {
+		// ConfigFileAPI does not expose Destroy(); it is a thin wrapper over the
+		// shared SDK context which is destroyed below via sdk.Destroy().
 		log.Infof("Closing config API")
 	}
 	if limitAPI != nil {
 		log.Infof("Closing limit API")
+		limitAPI.Destroy()
 	}
 
 	log.Infof("Destroying SDK context")

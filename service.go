@@ -15,12 +15,29 @@ func (p *PlugPolaris) GetServiceInstances(serviceName string) ([]model.Instance,
 		return nil, err
 	}
 
+	// Snapshot sdk/namespace/metrics/breaker under the lock to avoid a data race
+	// and nil-pointer panic if cleanup runs concurrently with this request.
+	p.mu.RLock()
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	metrics := p.metrics
+	circuitBreaker := p.circuitBreaker
+	retryManager := p.retryManager
+	p.mu.RUnlock()
+
+	if sdk == nil || circuitBreaker == nil || retryManager == nil {
+		return nil, NewInitError("Polaris plugin has been destroyed")
+	}
+
 	// Record service discovery operation metrics
-	if p.metrics != nil {
-		p.metrics.RecordServiceDiscovery(serviceName, p.conf.Namespace, "start")
+	if metrics != nil {
+		metrics.RecordServiceDiscovery(serviceName, namespace, "start")
 		defer func() {
-			if p.metrics != nil {
-				p.metrics.RecordServiceDiscovery(serviceName, p.conf.Namespace, "success")
+			if metrics != nil {
+				metrics.RecordServiceDiscovery(serviceName, namespace, "success")
 			}
 		}()
 	}
@@ -32,10 +49,10 @@ func (p *PlugPolaris) GetServiceInstances(serviceName string) ([]model.Instance,
 	var lastErr error
 
 	// Wrap retry operation with circuit breaker
-	err := p.circuitBreaker.Do(func() error {
-		return p.retryManager.DoWithRetry(func() error {
+	err := circuitBreaker.Do(func() error {
+		return retryManager.DoWithRetry(func() error {
 			// Create Consumer API client
-			consumerAPI := api.NewConsumerAPIByContext(p.sdk)
+			consumerAPI := api.NewConsumerAPIByContext(sdk)
 			if consumerAPI == nil {
 				return NewInitError("failed to create consumer API")
 			}
@@ -44,7 +61,7 @@ func (p *PlugPolaris) GetServiceInstances(serviceName string) ([]model.Instance,
 			req := &api.GetInstancesRequest{
 				GetInstancesRequest: model.GetInstancesRequest{
 					Service:   serviceName,
-					Namespace: p.conf.Namespace,
+					Namespace: namespace,
 				},
 			}
 
@@ -62,8 +79,8 @@ func (p *PlugPolaris) GetServiceInstances(serviceName string) ([]model.Instance,
 
 	if err != nil {
 		log.Errorf("Failed to get instances for service %s after retries: %v", serviceName, err)
-		if p.metrics != nil {
-			p.metrics.RecordServiceDiscovery(serviceName, p.conf.Namespace, "error")
+		if metrics != nil {
+			metrics.RecordServiceDiscovery(serviceName, namespace, "error")
 		}
 
 		return nil, WrapServiceError(lastErr, ErrCodeServiceUnavailable, "failed to get service instances")
@@ -91,6 +108,20 @@ func (p *PlugPolaris) WatchService(serviceName string) (*ServiceWatcher, error) 
 
 	log.Infof("Watching service: %s", serviceName)
 
+	// Snapshot mutable plugin state under the lock to avoid a data race / nil
+	// dereference if cleanup runs concurrently.
+	p.mu.RLock()
+	sdk := p.sdk
+	namespace := ""
+	if p.conf != nil {
+		namespace = p.conf.Namespace
+	}
+	p.mu.RUnlock()
+
+	if sdk == nil {
+		return nil, NewInitError("Polaris plugin has been destroyed")
+	}
+
 	// First check (read lock)
 	p.watcherMutex.RLock()
 	if existingWatcher, exists := p.activeWatchers[serviceName]; exists {
@@ -101,13 +132,13 @@ func (p *PlugPolaris) WatchService(serviceName string) (*ServiceWatcher, error) 
 	p.watcherMutex.RUnlock()
 
 	// Create Consumer API client
-	consumerAPI := api.NewConsumerAPIByContext(p.sdk)
+	consumerAPI := api.NewConsumerAPIByContext(sdk)
 	if consumerAPI == nil {
 		return nil, NewInitError("failed to create consumer API")
 	}
 
 	// Create service watcher and connect to SDK
-	watcher := NewServiceWatcherWithContext(p.watcherContext(), consumerAPI, serviceName, p.conf.Namespace)
+	watcher := NewServiceWatcherWithContext(p.watcherContext(), consumerAPI, serviceName, namespace)
 
 	// Second check (write lock) - double-checked locking pattern
 	p.watcherMutex.Lock()
@@ -158,7 +189,10 @@ func (p *PlugPolaris) checkServiceHealth(serviceName string, instances []model.I
 	}
 
 	// Record health status metrics
-	if p.metrics != nil {
+	p.mu.RLock()
+	metrics := p.metrics
+	p.mu.RUnlock()
+	if metrics != nil {
 		// Record healthy instance count
 		log.Infof("Service health metrics: %s - Healthy: %d, Unhealthy: %d, Isolated: %d",
 			serviceName, healthyCount, unhealthyCount, isolatedCount)
