@@ -92,22 +92,16 @@ type ServiceInfo struct {
 	Metadata  map[string]string `json:"metadata"`
 }
 
-// NewPolarisControlPlane creates a new Polaris control plane.
-// This function initializes the plugin's basic information and returns a pointer to PlugPolaris.
+// NewPolarisControlPlane creates a new Polaris control plane plugin.
+// Weight is MaxInt so it initializes before plugins that depend on it.
 func NewPolarisControlPlane() *PlugPolaris {
 	return &PlugPolaris{
 		BasePlugin: plugins.NewBasePlugin(
-			// Generate unique plugin ID
 			plugins.GeneratePluginID("", pluginName, pluginVersion),
-			// Plugin name
 			pluginName,
-			// Plugin description
 			pluginDescription,
-			// Plugin version
 			pluginVersion,
-			// Configuration prefix
 			confPrefix,
-			// Weight
 			math.MaxInt,
 		),
 		healthCheckCh:           make(chan struct{}),
@@ -120,14 +114,11 @@ func NewPolarisControlPlane() *PlugPolaris {
 	}
 }
 
-// InitializeResources implements custom initialization logic for the Polaris plugin.
-// This function loads and validates Polaris configuration, using default configuration if none is provided.
+// InitializeResources scans the "lynx.polaris" config subtree and validates it.
 func (p *PlugPolaris) InitializeResources(rt plugins.Runtime) error {
 	p.rt = rt
-	// Initialize an empty configuration structure
 	p.conf = &conf.Polaris{}
 
-	// Scan and load Polaris configuration from runtime configuration
 	err := rt.GetConfig().Value(confPrefix).Scan(p.conf)
 	if err != nil {
 		return WrapInitError(err, "failed to scan polaris configuration")
@@ -246,8 +237,7 @@ func (p *PlugPolaris) setDestroyed() {
 	atomic.StoreInt32(&p.destroyed, 1)
 }
 
-// StartupTasks implements custom startup logic for the Polaris plugin.
-// This function configures and starts the Polaris control plane, adding necessary middleware and configuration options.
+// StartupTasks connects to Polaris and starts service discovery and config watchers.
 func (p *PlugPolaris) StartupTasks() error {
 	return p.startupTasksContext(context.Background())
 }
